@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 # TESTING GIT MERGE
-//Blah
+#//Blah
 PACKAGE_NAME = 'hw4'
 
 # Standard Python Imports
