@@ -43,7 +43,22 @@ os.environ['OPENRAVE_DATABASE'] = ordatabase_path_thispack
 #get rid of warnings
 openravepy.RaveInitialize(True, openravepy.DebugLevel.Fatal)
 openravepy.misc.InitOpenRAVELogging()
+#################################################################
+#################################################################
+# We use the following constants for the step size on the line,
+# the probability of choosing a random configuration and the 
+# condition to determine if the goal is reached or not
+#################################################################
+#################################################################
 
+#constant for max distance to move any joint in a discrete step
+MAX_MOVE_AMOUNT = 0.1
+
+#Constant for probability of choosing a random target
+PROB_RAND_TARGET = 0.9
+
+#Constant for distance of current state near goal to determine the termination of the algorithm
+DIST_THRESH = 0.8
 
 #constant for max distance to move any joint in a discrete step
 MAX_MOVE_AMOUNT = 0.1
@@ -244,6 +259,92 @@ class RoboHandler:
   #######################################################
   def birrt_to_goal(self, goals):
     return None
+
+#######################################################
+  # The choose target function either returns the best goal or a random 
+  # configuration. This configuration will be the target to which the 
+  # tree tries to expand to. Best goal is goal nearest to tree
+  #######################################################
+  def rrt_choose_target(self, goals, lower, upper, closest_goal):
+    p = PROB_RAND_TARGET # The probability of choosing a random configuration
+    if (np.random.random_sample()<p):
+	q_target = np.array(lower+np.random.rand(len(lower))*(upper-lower)) #Choose a random configuration
+	#print 'A random configuration is chosen'
+    else:
+	q_target = goals[closest_goal] #Choose a nearest goal 
+	#print 'A goal is chosen as the target'
+   # print q_target
+    return q_target 
+
+  #######################################################
+  #  The nearest function returns the point in the tree thus far that is 
+  #  nearest to the target point and chosen in the previous function
+  #######################################################
+  def rrt_nearest(self, tree, q_target):
+    dist, index_nearest = self.min_euclid_dist_one_to_many(q_target, self.convert_from_dictkey(tree)) # Determine the nearest point
+    q_nearest = self.convert_from_dictkey(tree[index_nearest]) #Assign and then return the nearest point in the tree
+    return q_nearest, index_nearest
+
+  ##################################################################################################
+  #  The extend function extends the nearest node on the tree to the target in increments as long as
+  #  it is allowed. Otherwise it extends until possible and then terminates
+  ##################################################################################################
+  def rrt_extend(self, q_nearest, q_target, tree, parent, lower, upper):
+    direction_vector = q_target - q_nearest # Obtain the direction of the direct line from initial to goal state
+#    print q_nearest
+#    print q_target
+    dist, index = self.min_euclid_dist_one_to_many(q_nearest, [q_target]) # The distance between the initial and final state
+    steps = int(dist / MAX_MOVE_AMOUNT) # Determine how many steps it will take to reach the final state
+
+    for count in range(steps):
+      q_parent = q_nearest + (direction_vector)/steps*(count) # Calculate the parent to be each previous node
+      #print q_parent
+      q_add = q_nearest + (direction_vector)/steps*(count+1) # The next node is obtained by 'walking' on this direct line
+
+      with self.env:
+        self.robot.SetActiveDOFValues(q_add) # This is done for demo purposes. The robot will assume a configuration as it tests.
+      reach_limit = self.robot.CheckSelfCollision() or self.env.CheckCollision(self.robot) or self.limitcheck(q_add, lower, upper)# Collision checker
+      #print reach_limit
+
+      if reach_limit:
+        #print reach_limit
+	return None # Terminate the function of a collision occurs. 
+
+      tree.append(q_add) # Add the first element to the tree
+      parent[self.convert_for_dict(q_add)] = q_parent # Update the parent dictionary	
+    return None
+
+
+  #######################################################
+  # This function returns the trajectory that will move the robot
+  #######################################################
+  def backtrace(self, parent, start, end):
+     path = []
+     path.append(end)
+     #print 'Inside the backtrace function'
+     #print path
+     #print start
+     while path[-1] != start:
+       #print parent[path[-1]]
+       path.append(self.convert_for_dict(parent[path[-1]]))
+       #print path	
+     path.reverse()
+     path = np.array(path)#/100.
+     traj = self.points_to_traj(path)
+     return traj
+
+  #######################################################
+  #######################################################
+   # Limit Check
+   # if the current state reaches the limit, the function returns true
+   # We are using this function to create a boundary for the search space in all the 7 dimensions
+   # The robot will not be allowed to go beyond its DOF limits
+   ########################################################  
+  def limitcheck(self, state, lower, upper):
+    true_num = sum(state>=lower)+sum(state<=upper)
+    #print true_num
+    return true_num < 14
+
 
   #######################################################
   # Convert to and from numpy array to a hashable function
