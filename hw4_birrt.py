@@ -258,6 +258,44 @@ class RoboHandler:
   # RETURN: a trajectory to the goal
   #######################################################
   def birrt_to_goal(self, goals):
+    print 'Starting BiRRT Algorithm'
+    goals = np.array(goals) #Bring the goals into an np array
+    q_initial = self.robot.GetActiveDOFValues() # Initial state is a np array
+    q_initial_tuple = self.convert_for_dict(q_initial) # This is the tuple for initial state
+    q_nearest = q_initial # This is the initialization for nearest point in np array format
+
+    thresh = DIST_THRESH # The threshold to determine if the goal is reached or not
+    
+    #Initialize the tree for the start node
+    start_tree.append(q_initial_tuple)
+    trees[0] = start_tree
+
+    #Initialize the parent dictionary for the start node
+    start_parents[q_initial_tuple] = None # Dictionaay to store the start_parents
+    parents[0] = start_parents
+
+    #Now take all the goals and make a tree to add to the array of goals and make a dictionary of child (key) parents (value) to add to the array of parent
+    i = 1
+    for goal in goals:
+        goal_tree.append(self.convert_for_dict(goal))
+        trees[i] = goal_tree       
+        
+        goal_parents[self.convert_for_dict(goal)] = None
+        parents[i]= goal_parents
+        i=i+1
+
+    #Find the lower and upper limits of the joint angles
+    lower, upper = self.robot.GetActiveDOFLimits() # Get the joint limits
+
+    # Calculate the minimum distance between closest node of the tree and the closest goal. Return both indices
+    # Important to note here that the INDEX is being returned
+    dist, closest_goal, closest_point = self.min_euclid_dist_many_to_many(goals, self.convert_from_dictkey(tree)) #Consider commenting?
+    
+    print 'Completed initialization, lets make some trees!'
+    while(dist>thresh): # Keep checking if the tree has not already reached a nearest goal
+        for 
+            q_target = self.rrt_choose_target(goals, lower, upper, closest_goal) # Function returns a randomly chosen configuration or a nearest goal to the tree
+            
     return None
 
 #######################################################
