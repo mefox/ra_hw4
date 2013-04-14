@@ -293,8 +293,10 @@ class RoboHandler:
     
     print 'Completed initialization, lets make some trees!'
     while(dist>thresh): # Keep checking if the tree has not already reached a nearest goal
-        for 
+        for tree in trees
             q_target = self.rrt_choose_target(goals, lower, upper, closest_goal) # Function returns a randomly chosen configuration or a nearest goal to the tree
+            q_nearest = 
+            
             
     return None
 
