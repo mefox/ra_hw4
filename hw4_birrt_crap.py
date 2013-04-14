@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 # TESTING GIT MERGE
-//Blah
+#//Blah
 PACKAGE_NAME = 'hw4'
 
 # Standard Python Imports
@@ -268,14 +268,15 @@ class RoboHandler:
     
     #Initialize the tree for the start node
     start_tree.append(q_initial_tuple)
-    trees[0] = start_tree
+    trees = np.array()
+
 
     #Initialize the parent dictionary for the start node
-    start_parents[q_initial_tuple] = None # Dictionaay to store the start_parents
+    start_parents[q_initial_tuple] = None # Dictionary to store the start_parents
     parents[0] = start_parents
 
     #Now take all the goals and make a tree to add to the array of goals and make a dictionary of child (key) parents (value) to add to the array of parent
-    i = 1
+    i = 0
     for goal in goals:
         goal_tree.append(self.convert_for_dict(goal))
         trees[i] = goal_tree       
@@ -289,29 +290,53 @@ class RoboHandler:
 
     # Calculate the minimum distance between closest node of the tree and the closest goal. Return both indices
     # Important to note here that the INDEX is being returned
-    dist, closest_goal, closest_point = self.min_euclid_dist_many_to_many(goals, self.convert_from_dictkey(tree)) #Consider commenting?
     
     print 'Completed initialization, lets make some trees!'
     while(dist>thresh): # Keep checking if the tree has not already reached a nearest goal
-        for tree in trees
-            q_target = self.rrt_choose_target(goals, lower, upper, closest_goal) # Function returns a randomly chosen configuration or a nearest goal to the tree
+        #checking for the start tree first
+        dist, closest_goal_tree_index, closest_goal_tree_node_index, closest_start_tree_node_index = self.find_nearest_point_from_start_to_trees (trees, start_tree) #Consider commenting?
+        closest_tree = trees[closest_goal_tree_index]
+        closest_node=      
+                q_target = self.rrt_choose_target(goals, lower, upper, closest_goal, True) # Function returns a randomly chosen configuration or a nearest goal to the tree
+             
+                dist, closest_goal, closest_point = self.min_euclid_dist_many_to_many([q_initial], self.convert_from_dictkey(trees[k])) #Consider commenting?
+                
+                q_target = self.rrt_choose_target(goals, lower, upper, closest_goal, False) # Function returns a randomly chosen configuration or a nearest goal to the tree
+                 
             q_nearest = 
             
             
     return None
+
+#returns distance between the closest points on start tree and the goal trees, which node on start tree, which node on which goal tree
+def find_nearest_point_from_start_to_trees(self, trees, start_tree)
+    i=0
+    for tree in trees
+        distances[i], closest_node_index[i], closest_node_on_start[i] = self.min_euclid_dist_many_to_many( self.convert_from_dictkey(start_tree), self.convert_from_dictkey(tree[i]))
+        i=i+1
+
+    #calculating min distance and respective other indices
+    goal_tree_index= np.argmin(np.array(distances))
+    min_dist = distances[goal_tree_index]
+    closest_goal_tree_node_index= closest_node_index[goal_tree_index]
+    closest_start_tree_node_index = closest_node_on_start [goal_tree_index]
+
+    return min_dist, goal_tree_index, closest_goal_tree_node_index, closest_start_tree_node_index
+    
+    
 
 #######################################################
   # The choose target function either returns the best goal or a random 
   # configuration. This configuration will be the target to which the 
   # tree tries to expand to. Best goal is goal nearest to tree
   #######################################################
-  def rrt_choose_target(self, goals, lower, upper, closest_goal):
+  def rrt_choose_target(self, goals, lower, upper, closest_tree, closest_node, isStart):
     p = PROB_RAND_TARGET # The probability of choosing a random configuration
     if (np.random.random_sample()<p):
 	q_target = np.array(lower+np.random.rand(len(lower))*(upper-lower)) #Choose a random configuration
 	#print 'A random configuration is chosen'
     else:
-	q_target = goals[closest_goal] #Choose a nearest goal 
+	q_target = closest_tree[closest_node] #Choose a nearest goal
 	#print 'A goal is chosen as the target'
    # print q_target
     return q_target 
