@@ -100,10 +100,12 @@ class RoboHandler:
   #######################################################
   def problem_init(self):
     self.target_kinbody = self.env.GetKinBody("target")
-
+    print "initializing the problem"
     # create a grasping module
     self.gmodel = openravepy.databases.grasping.GraspingModel(self.robot, self.target_kinbody)
     
+
+    print "loading grasps"
     # load grasps
     if not self.gmodel.load():
       self.gmodel.autogenerate()
@@ -111,6 +113,7 @@ class RoboHandler:
     self.grasps = self.gmodel.grasps
     self.graspindices = self.gmodel.graspindices
 
+    print "loading ik model"
     # load ikmodel
     self.ikmodel = openravepy.databases.inversekinematics.InverseKinematicsModel(self.robot,iktype=openravepy.IkParameterization.Type.Transform6D)
     if not self.ikmodel.load():
@@ -118,7 +121,8 @@ class RoboHandler:
 
     # create taskmanip
     self.taskmanip = openravepy.interfaces.TaskManipulation(self.robot)
-  
+
+    print "moving the left arm away"  
     # move left arm out of way
     self.robot.SetDOFValues(np.array([4,2,0,-1,0,0,0]),self.robot.GetManipulator('left_wam').GetArmIndices() )
 
@@ -203,10 +207,13 @@ class RoboHandler:
 
     # get the trajectory!
     traj = self.birrt_to_goal(goals)
+    #print traj
 
     with self.env:
       self.robot.SetActiveDOFValues([5.459, -0.981,  -1.113,  1.473 , -1.124, -1.332,  1.856])
 
+    print "TRAVERSING THE PATH NOW"
+    time.sleep(5)
     self.robot.GetController().SetPath(traj)
     self.robot.WaitForController(0)
     self.taskmanip.CloseFingers()
@@ -262,31 +269,37 @@ class RoboHandler:
     print 'Starting BiRRT Algorithm'
     goals = np.array(goals) #Bring the goals into an np array
     q_initial = self.robot.GetActiveDOFValues() # Initial state is a np array
+    print "INITIAL POSITION", q_initial
     q_initial_tuple = self.convert_for_dict(q_initial) # This is the tuple for initial state
     q_nearest = q_initial # This is the initialization for nearest point in np array format
 
     thresh = DIST_THRESH # The threshold to determine if the goal is reached or not
     
     #Initialize the tree for the start node
-    start_tree.append(q_initial_tuple)
+    start_tree = [q_initial]
+    #start_tree.append(q_initial_tuple)
     
 
     #Initialize the parent dictionary for the start node
+    parent = {}
     parent[q_initial_tuple] = None # Dictionaay to store the start_parents
 
 
-    trees = np.array() #np array to store goal trees
+    #trees = np.array([]) #np array to store goal trees
     #parents = np.array() #np array to store goal parent dictionaries
 
     #Now take all the goals and make a tree to add to the array of goals and make a dictionary of child (key) parents (value) to add to the array of parents
     i = 0
+    goal_trees=[]
     for goal in goals:
-      goal_tree.append(self.convert_for_dict(goal))
-      goal_trees[i] = goal_tree       
+      goal_tree=[goal]
+      goal_trees.append(goal_tree)       
         
       parent[self.convert_for_dict(goal)] = None
+      #print "IIIIIII", i
       #goal_parents[i]= goal_parent
       i=i+1
+
 
     #Find the lower and upper limits of the joint angles
     lower, upper = self.robot.GetActiveDOFLimits() # Get the joint limits
@@ -300,17 +313,17 @@ class RoboHandler:
     config1 = q_initial
     config2 = q_initial
     while(tree_not_connected): # Keep checking if the tree has not already reached a nearest goal
-      q_target, q_nearest, min_dist = rrt_choose_target_from_start(start_tree, goal_trees, lower, upper) 
-      self.rrt_extend(q_nearest, q_target, start_tree, parent, lower, upper)
-      if min_dist<DIST_THRESH:
+      q_target, q_nearest, min_dist = self.rrt_choose_target_from_start(start_tree, goal_trees, lower, upper) 
+      success = self.rrt_extend(q_nearest, q_target, start_tree, parent, lower, upper)
+      if min_dist<DIST_THRESH and success:
         tree_not_connected = False
         config1 = q_nearest
         config2 = q_target
         break
-      for tree in trees:
+      for tree in goal_trees:
         q_target, q_nearest, min_dist = self.rrt_choose_target_from_goal(start_tree,tree, lower, upper) # Function returns a randomly chosen configuration or a nearest goal to the tree
-        self.rrt_extend(q_nearest, q_target, start_tree, parent, lower, upper)      
-        if min_dist<DIST_THRESH:
+        success = self.rrt_extend(q_nearest, q_target, start_tree, parent, lower, upper)      
+        if min_dist<DIST_THRESH and success:
           tree_not_connected = False
           config1 = q_nearest
           config2 = q_target
@@ -331,17 +344,17 @@ class RoboHandler:
     p = PROB_RAND_TARGET # The probability of choosing a random configuration
     if (np.random.random_sample()<p):
       q_target = np.array(lower+np.random.rand(len(lower))*(upper-lower)) #Choose a random configuration
-      min_dist, q_nearest, nearest_start_tree_index = self.rrt_nearest(start_tree, self.convert_from_dictkey(q_target))
+      min_dist, q_nearest, nearest_start_tree_index = self.rrt_nearest(start_tree, q_target)
 	#print 'A random configuration is chosen'
 
     #Otherwise choose the closest of a random selection from each of the goal trees
     else:
       i=0
+      q_targets =[]
       for tree in goal_trees:
-         q_target_indecies[i] = choice(goal_trees[i])
-         q_targets[i] = goal_trees[i][q_target_indecies[i]]
+         q_targets.append(choice(goal_trees[i]))
 
-      min_dist, nearest_start_tree_index, nearest_goal_tree_index = min_euclid_dist_many_to_many(self.convert_from_dictkey(start_tree), self.convert_from_dictkey(q_targets))
+      min_dist, nearest_start_tree_index, nearest_goal_tree_index = self.min_euclid_dist_many_to_many(start_tree,q_targets)
       q_target = q_targets[nearest_goal_tree_index] #Choose the node from the goal_tree that is closest the start_tree
       q_nearest = start_tree[nearest_start_tree_index]
       # print q_target
@@ -360,8 +373,8 @@ class RoboHandler:
 	  q_target = np.array(lower+np.random.rand(len(lower))*(upper-lower)) #Choose a random configuration
 	#print 'A random configuration is chosen'
     else:
-       q_target_index = choice(start_tree)
-       min_dist, q_nearest, nearest_goal_tree_index = self.rrt_nearest(goal_tree, self.convert_from_dictkey(start_tree[q_target_index]))
+       q_target=choice(start_tree)
+    min_dist, q_nearest, nearest_goal_tree_index = self.rrt_nearest(goal_tree, q_target)
     return q_target, q_nearest, min_dist
 
   #######################################################
@@ -369,8 +382,8 @@ class RoboHandler:
   #  nearest to the target point and chosen in the previous function
   #######################################################
   def rrt_nearest(self, tree, q_target):
-    min_dist, index_nearest = self.min_euclid_dist_one_to_many(q_target, self.convert_from_dictkey(tree)) # Determine the nearest point
-    q_nearest = self.convert_from_dictkey(tree[index_nearest]) #Assign and then return the nearest point in the tree
+    min_dist, index_nearest = self.min_euclid_dist_one_to_many(q_target,tree) # Determine the nearest point
+    q_nearest = tree[index_nearest] #Assign and then return the nearest point in the tree
     return min_dist, q_nearest, index_nearest
 
   ##################################################################################################
@@ -397,12 +410,12 @@ class RoboHandler:
 
       if reach_limit:
         #print reach_limit
-	    return None # Terminate the function of a collision occurs. 
+	return False # Terminate the function of a collision occurs. 
 
       tree.append(q_add) # Add the first element to the tree
       parent[self.convert_for_dict(q_add)] = q_parent # Update the parent dictionary	
     
-    return None
+    return True
 
 
   #######################################################
@@ -410,25 +423,30 @@ class RoboHandler:
   #######################################################
   def backtrace(self, parent, config1, config2):
      path1 = []
+     print "CONFIG 1",config1
+     print "CONFIG 2",config2
      path1.append(config1)
      path2 = []
      path2.append(config2)
      #print 'Inside the backtrace function'
      #print path
      #print start
-     while path1[-1] != None:
+     while path1[-1] is not None:
        #print parent[path[-1]]
-       path.append(self.convert_for_dict(parent[path[-1]]))
+       path1.append(parent[self.convert_for_dict(path1[-1])])
        #print path
 
-     while path2[-1] != None:
-       path.append(self.convert_for_dict(parent[path[-1]]))	
+     while path2[-1] is not None:
+       path2.append(parent[self.convert_for_dict(path2[-1])])
 
      path1.remove(None)
      path2.remove(None)
-
+     
      path1.reverse()
-     path = np.array(path1, path2)
+     print "PATH 1", path1
+     print "PATH 2", path2
+     path = path1+path2
+     print path
      traj = self.points_to_traj(path)
      return traj
 
@@ -449,12 +467,12 @@ class RoboHandler:
   # Convert to and from numpy array to a hashable function
   #######################################################
   def convert_for_dict(self, item):
-    #return tuple(np.int_(item*100))
-    return tuple(item)
+    return tuple(np.int_(item*100))
+    #return tuple(item)
 
   def convert_from_dictkey(self, item):
-    #return np.array(item)/100.
-    return np.array(item)
+    return np.array(item)/100.
+    #return np.array(item)
 
 
 
@@ -511,5 +529,5 @@ class RoboHandler:
 if __name__ == '__main__':
   robo = RoboHandler()
   robo.run_problem_birrt()
-  #time.sleep(10000) #to keep the openrave window open
+  time.sleep(30) #to keep the openrave window open
   
