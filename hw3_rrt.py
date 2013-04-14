@@ -284,16 +284,16 @@ class RoboHandler:
       	q_target = self.rrt_choose_target(goals, lower, upper, closest_goal) # Function returns a randomly chosen configuration or a nearest goal to the tree
 	#print q_target
 	#print 'The target is chosen' 
-	if q_target in self.convert_from_dictkey(tree): # Check if the point is already in the tree. Continue if it is already in the tree
-	  continue
-	q_nearest, index_nearest = self.rrt_nearest(tree, q_target) # Get the point in the tree nearest to the selected target
+	    if q_target in self.convert_from_dictkey(tree): # Check if the point is already in the tree. Continue if it is already in the tree
+	      continue
+	    q_nearest, index_nearest = self.rrt_nearest(tree, q_target) # Get the point in the tree nearest to the selected target
 	#print q_nearest
 	#print 'The nearest point is hence chosen'
-	self.rrt_extend(q_nearest, q_target, tree, parent, lower, upper) # Extend the tree to the target. Terminate if collision occurs
+	    self.rrt_extend(q_nearest, q_target, tree, parent, lower, upper) # Extend the tree to the target. Terminate if collision occurs
         dist, closest_goal, closest_point = self.min_euclid_dist_many_to_many(goals, self.convert_from_dictkey(tree)) # Determine how far the goal is
 
-    q_nearest, index_nearest = self.rrt_nearest(tree, goals[closest_goal]) # Once tree is near enough, add goal as the child of the nearest point in tree
-    parent[self.convert_for_dict(goals[closest_goal])] = q_nearest # Update the parent dictionary
+        q_nearest, index_nearest = self.rrt_nearest(tree, goals[closest_goal]) # Once tree is near enough, add goal as the child of the nearest point in tree
+        parent[self.convert_for_dict(goals[closest_goal])] = q_nearest # Update the parent dictionary
     return self.backtrace(parent, q_initial_tuple, self.convert_for_dict(goals[closest_goal])) # The backtrace function gives the path. Return the path
 
 
