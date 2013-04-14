@@ -296,8 +296,8 @@ class RoboHandler:
         #checking for the start tree first
         dist, closest_goal_tree_index, closest_goal_tree_node_index, closest_start_tree_node_index = self.find_nearest_point_from_start_to_trees (trees, start_tree) #Consider commenting?
         closest_tree = trees[closest_goal_tree_index]
-        closest_node=      
-                q_target = self.rrt_choose_target(goals, lower, upper, closest_goal, True) # Function returns a randomly chosen configuration or a nearest goal to the tree
+        closest_node=  
+        q_target = self.rrt_choose_target(goals, lower, upper, closest_goal, True) # Function returns a randomly chosen configuration or a nearest goal to the tree
              
                 dist, closest_goal, closest_point = self.min_euclid_dist_many_to_many([q_initial], self.convert_from_dictkey(trees[k])) #Consider commenting?
                 
