@@ -510,6 +510,7 @@ class RoboHandler:
 
 if __name__ == '__main__':
   robo = RoboHandler()
+  print "calling "
   robo.run_problem_birrt()
   #time.sleep(10000) #to keep the openrave window open
   
