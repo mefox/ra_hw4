@@ -313,6 +313,7 @@ class RoboHandler:
     config1 = q_initial
     config2 = q_initial
     while(tree_not_connected): # Keep checking if the tree has not already reached a nearest goal
+      #First grow start tree
       q_target, q_nearest, min_dist = self.rrt_choose_target_from_start(start_tree, goal_trees, lower, upper) 
       success = self.rrt_extend(q_nearest, q_target, start_tree, parent, lower, upper)
       if min_dist<DIST_THRESH and success:
@@ -320,6 +321,8 @@ class RoboHandler:
         config1 = q_nearest
         config2 = q_target
         break
+
+      #Grow all goal trees
       for tree in goal_trees:
         q_target, q_nearest, min_dist = self.rrt_choose_target_from_goal(start_tree,tree, lower, upper) # Function returns a randomly chosen configuration or a nearest goal to the tree
         success = self.rrt_extend(q_nearest, q_target, start_tree, parent, lower, upper)      
@@ -467,13 +470,14 @@ class RoboHandler:
   # Convert to and from numpy array to a hashable function
   #######################################################
   def convert_for_dict(self, item):
-    return tuple(np.int_(item*100))
+    #return tuple(np.int_(item*100))
     #return tuple(item)
+    return tuple(np.around(item,decimals = 3))
 
   def convert_from_dictkey(self, item):
-    return np.array(item)/100.
+    #return np.array(item)/100.
     #return np.array(item)
-
+    return np.array(np.around(item,decimals = 3))
 
 
   def points_to_traj(self, points):
