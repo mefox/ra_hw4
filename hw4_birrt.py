@@ -61,10 +61,6 @@ PROB_RAND_TARGET = 0.9
 #Constant for distance of current state near goal to determine the termination of the algorithm
 DIST_THRESH = 0.8
 
-#constant for max distance to move any joint in a discrete step
-MAX_MOVE_AMOUNT = 0.1
-
-
 class RoboHandler:
   def __init__(self):
     self.openrave_init()
@@ -272,14 +268,12 @@ class RoboHandler:
     print "INITIAL POSITION", q_initial
     q_initial_tuple = self.convert_for_dict(q_initial) # This is the tuple for initial state
     q_nearest = q_initial # This is the initialization for nearest point in np array format
-
     thresh = DIST_THRESH # The threshold to determine if the goal is reached or not
     
     #Initialize the tree for the start node
     start_tree = [q_initial]
-    #start_tree.append(q_initial_tuple)
-    
 
+    #start_tree.append(q_initial_tuple)
     #Initialize the parent dictionary for the start node
     parent = {}
     parent[q_initial_tuple] = None # Dictionaay to store the start_parents
@@ -289,17 +283,10 @@ class RoboHandler:
     #parents = np.array() #np array to store goal parent dictionaries
 
     #Now take all the goals and make a tree to add to the array of goals and make a dictionary of child (key) parents (value) to add to the array of parents
-    i = 0
-    goal_trees=[]
-    for goal in goals:
-      goal_tree=[goal]
-      goal_trees.append(goal_tree)       
-        
+    goal_tree=[]
+    for goal in goals:    
       parent[self.convert_for_dict(goal)] = None
-      #print "IIIIIII", i
-      #goal_parents[i]= goal_parent
-      i=i+1
-
+      goal_tree.append(goal)
 
     #Find the lower and upper limits of the joint angles
     lower, upper = self.robot.GetActiveDOFLimits() # Get the joint limits
@@ -307,31 +294,30 @@ class RoboHandler:
     # Calculate the minimum distance between closest node of the tree and the closest goal. Return both indices
     # Important to note here that the INDEX is being returned
     #dist, closest_goal, closest_point = self.min_euclid_dist_many_to_many(goals, self.convert_from_dictkey(tree)) #Consider commenting?
-
     tree_not_connected = True
     print 'Completed initialization, lets make some trees!'
     config1 = q_initial
     config2 = q_initial
-    while(tree_not_connected): # Keep checking if the tree has not already reached a nearest goal
-      #First grow start tree
-      q_target, q_nearest, min_dist = self.rrt_choose_target_from_start(start_tree, goal_trees, lower, upper) 
-      success = self.rrt_extend(q_nearest, q_target, start_tree, parent, lower, upper)
-      if min_dist<DIST_THRESH and success:
-        tree_not_connected = False
-        config1 = q_nearest
-        config2 = q_target
-        break
+    dist_between_trees, id1, id2 = self.min_euclid_dist_many_to_many(start_tree, goal_tree)
+    while(dist_between_trees>DIST_THRESH): # Keep checking if the tree has not already reached a nearest goal
 
+      print "DISTANCE: ",dist_between_trees
       #Grow all goal trees
-      for tree in goal_trees:
-        q_target, q_nearest, min_dist = self.rrt_choose_target_from_goal(start_tree,tree, lower, upper) # Function returns a randomly chosen configuration or a nearest goal to the tree
-        success = self.rrt_extend(q_nearest, q_target, start_tree, parent, lower, upper)      
-        if min_dist<DIST_THRESH and success:
-          tree_not_connected = False
-          config1 = q_nearest
-          config2 = q_target
-          break
- 
+      #for tree in goal_trees:
+      #First grow start tree
+      q_target, q_nearest, min_dist = self.rrt_choose_target_from_start(start_tree, goal_tree, lower, upper) 
+      print "FOR START TREE - Q-TARGET, Q-NEAREST",q_target, q_nearest
+      success = self.rrt_extend(q_nearest, q_target, start_tree, parent, lower, upper)
+
+
+      q_target, q_nearest, min_dist = self.rrt_choose_target_from_goal(start_tree,goal_tree, lower, upper) # Function returns a randomly chosen configuration or a nearest goal to the tree
+      print "FOR GOAL TREE - Q-TARGET, Q-NEAREST",q_target, q_nearest
+      success = self.rrt_extend(q_nearest, q_target, start_tree, parent, lower, upper)      
+
+      dist_between_trees, idx1, idx2 = self.min_euclid_dist_many_to_many(start_tree, goal_tree)
+      config1 = start_tree[idx1]
+      config2 = goal_tree[idx2]
+       
     return self.backtrace(parent, config1, config2) # The backtrace function gives the path. Return the path
              
     #return None
@@ -343,24 +329,21 @@ class RoboHandler:
   # tree tries to expand to. The function also returns the nearest configuration
   # on the start tree and the minimum distance by taking advantage of rrt_nearest
   #######################################################
-  def rrt_choose_target_from_start(self, start_tree, goal_trees, lower, upper):
+  def rrt_choose_target_from_start(self, start_tree, goal_tree, lower, upper):
     p = PROB_RAND_TARGET # The probability of choosing a random configuration
     if (np.random.random_sample()<p):
       q_target = np.array(lower+np.random.rand(len(lower))*(upper-lower)) #Choose a random configuration
-      min_dist, q_nearest, nearest_start_tree_index = self.rrt_nearest(start_tree, q_target)
+      #min_dist, q_nearest, nearest_start_tree_index = self.rrt_nearest(start_tree, q_target)
 	#print 'A random configuration is chosen'
-
     #Otherwise choose the closest of a random selection from each of the goal trees
     else:
-      i=0
-      q_targets =[]
-      for tree in goal_trees:
-         q_targets.append(choice(goal_trees[i]))
+      q_target = choice(goal_tree)
 
-      min_dist, nearest_start_tree_index, nearest_goal_tree_index = self.min_euclid_dist_many_to_many(start_tree,q_targets)
-      q_target = q_targets[nearest_goal_tree_index] #Choose the node from the goal_tree that is closest the start_tree
-      q_nearest = start_tree[nearest_start_tree_index]
+   #min_dist, nearest_start_tree_index, nearest_goal_tree_index = self.min_euclid_dist_many_to_many(start_tree, goal_tree)
+      #q_target = goal_tree[nearest_goal_tree_index] #Choose the node from the goal_tree that is closest the start_tree
+      #q_nearest = start_tree[nearest_start_tree_index]
       # print q_target
+    min_dist, q_nearest, nearest_goal_tree_index = self.rrt_nearest(start_tree, q_target)
     return q_target, q_nearest, min_dist
 
   #######################################################
