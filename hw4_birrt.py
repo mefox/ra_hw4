@@ -56,7 +56,7 @@ openravepy.misc.InitOpenRAVELogging()
 MAX_MOVE_AMOUNT = 0.1
 
 #Constant for probability of choosing a random target
-PROB_RAND_TARGET = 0.9
+PROB_RAND_TARGET = 1
 
 #Constant for distance of current state near goal to determine the termination of the algorithm
 DIST_THRESH = 0.1
@@ -263,9 +263,8 @@ class RoboHandler:
   #######################################################
   def birrt_to_goal(self, goals):
     print 'Starting BiRRT Algorithm'
-    goals = np.array(goals) #Bring the goals into an np array
+    #goals = np.array(goals) #Bring the goals into an np array
     q_initial = self.robot.GetActiveDOFValues() # Initial state is a np array
-
     print "INITIAL POSITION", q_initial
     q_initial_tuple = self.convert_for_dict(q_initial) # This is the tuple for initial state
     q_nearest = q_initial # This is the initialization for nearest point in np array format
@@ -276,8 +275,8 @@ class RoboHandler:
 
     #start_tree.append(q_initial_tuple)
     #Initialize the parent dictionary for the start node
-    parent = {}
-    parent[q_initial_tuple] = None # Dictionary to store the start_parents
+    start_parent = {}
+    start_parent[q_initial_tuple] = None # Dictionary to store the start_parents
 
 
     #trees = np.array([]) #np array to store goal trees
@@ -285,8 +284,9 @@ class RoboHandler:
 
     #Now take all the goals and make a tree to add to the array of goals and make a dictionary of child (key) parents (value) to add to the array of parents
     goal_tree=[]
+    goal_parent={}
     for goal in goals:    
-      parent[self.convert_for_dict(goal)] = None
+      goal_parent[self.convert_for_dict(goal)] = None
       goal_tree.append(goal)
     #for keys in parent:
     #  print 'The first key value pairs are', keys, parent[keys]
@@ -299,19 +299,13 @@ class RoboHandler:
     #dist, closest_goal, closest_point = self.min_euclid_dist_many_to_many(goals, self.convert_from_dictkey(tree)) #Consider commenting?
     tree_not_connected = True
     print 'Completed initialization, lets make some trees!'
-    config1 = q_initial
-    config2 = q_initial
     dist_between_trees, idx1, idx2 = self.min_euclid_dist_many_to_many(start_tree, goal_tree)
     print "DISTANCE Initial: ",dist_between_trees
-    while(dist_between_trees>DIST_THRESH): # Keep checking if the tree has not already reached a nearest goal
-     
-      
-      #Grow all goal trees
-      #for tree in goal_trees:
+    while(dist_between_trees>DIST_THRESH): # Keep checking if the tree has not already reached a nearest goal   
       #First grow start tree
       q_target, q_nearest, min_dist = self.rrt_choose_target_from_start(start_tree, goal_tree, lower, upper) 
-      print "FOR START TREE - Q-TARGET, Q-NEAREST",q_target, q_nearest
-      self.rrt_extend(q_nearest, q_target, start_tree, parent, lower, upper)
+      #print "FOR START TREE - Q-TARGET, Q-NEAREST",q_target, q_nearest
+      self.rrt_extend(q_nearest, q_target, start_tree, start_parent, lower, upper)
 
       dist_between_trees, idx1, idx2 = self.min_euclid_dist_many_to_many(start_tree, goal_tree)
       print "DISTANCE after start_tree extend: ",dist_between_trees      
@@ -319,8 +313,8 @@ class RoboHandler:
          break
       
       q_target, q_nearest, min_dist = self.rrt_choose_target_from_goal(start_tree,goal_tree, lower, upper) # Function returns a randomly chosen configuration or a nearest goal to the tree
-      print "FOR GOAL TREE - Q-TARGET, Q-NEAREST",q_target, q_nearest
-      self.rrt_extend(q_nearest, q_target, start_tree, parent, lower, upper)      
+      #print "FOR GOAL TREE - Q-TARGET, Q-NEAREST",q_target, q_nearest
+      self.rrt_extend(q_nearest, q_target, start_tree, goal_parent, lower, upper)      
       dist_between_trees, idx1, idx2 = self.min_euclid_dist_many_to_many(start_tree, goal_tree)
 
       print "DISTANCE after goal tree extend: ",dist_between_trees
@@ -328,7 +322,7 @@ class RoboHandler:
     config1 = start_tree[idx1]
     config2 = goal_tree[idx2]
        
-    return self.backtrace(parent, config1, config2) # The backtrace function gives the path. Return the path
+    return self.backtrace(start_parent, goal_parent, config1, config2) # The backtrace function gives the path. Return the path
              
     #return None
 
@@ -340,21 +334,16 @@ class RoboHandler:
   # on the start tree and the minimum distance by taking advantage of rrt_nearest
   #######################################################
   def rrt_choose_target_from_start(self, start_tree, goal_tree, lower, upper):
-    p = PROB_RAND_TARGET # The probability of choosing a random configuration
-    if (np.random.random_sample()<p):
+    
+    if (np.random.random_sample()<PROB_RAND_TARGET):
       q_target = np.array(lower+np.random.rand(len(lower))*(upper-lower)) #Choose a random configuration
-      #min_dist, q_nearest, nearest_start_tree_index = self.rrt_nearest(start_tree, q_target)
-      print 'random target from start to goal chosen'
-	#print 'A random configuration is chosen'
+      #print 'RANDOM target from start to goal chosen'
+
     #Otherwise choose the closest of a random selection from each of the goal trees
     else:
       q_target = choice(goal_tree)
-      print 'specific target from start to goal chosen', q_target
+      #print 'specific target from start to goal chosen', q_target
 
-   #min_dist, nearest_start_tree_index, nearest_goal_tree_index = self.min_euclid_dist_many_to_many(start_tree, goal_tree)
-      #q_target = goal_tree[nearest_goal_tree_index] #Choose the node from the goal_tree that is closest the start_tree
-      #q_nearest = start_tree[nearest_start_tree_index]
-      # print q_target
     min_dist, q_nearest, nearest_start_tree_index = self.rrt_nearest(start_tree, q_target)
     return q_target, q_nearest, min_dist
 
@@ -365,13 +354,15 @@ class RoboHandler:
   # tree tries to expand to. 
   #######################################################
   def rrt_choose_target_from_goal(self, start_tree, goal_tree, lower, upper):
-    p = PROB_RAND_TARGET # The probability of choosing a random configuration
-    if (np.random.random_sample()<p):
+    
+    if (np.random.random_sample()< PROB_RAND_TARGET):
       q_target = np.array(lower+np.random.rand(len(lower))*(upper-lower)) #Choose a random configuration
-      print 'random target from goal to start chosen'
+      #print 'random target from goal to start chosen'
+
     else:
       q_target=choice(start_tree)
-      print 'specific target from goal to start chosen', q_target
+      #print 'specific target from goal to start chosen', q_target
+
     min_dist, q_nearest, nearest_goal_tree_index = self.rrt_nearest(goal_tree, q_target)
     return q_target, q_nearest, min_dist
 
@@ -389,29 +380,31 @@ class RoboHandler:
   #  it is allowed. Otherwise it extends until possible and then terminates
   ##################################################################################################
   def rrt_extend(self, q_nearest, q_target, tree, parent, lower, upper):
+
     direction_vector = q_target - q_nearest # Obtain the direction of the direct line from initial to goal state
-#    print q_nearest
-#    print q_target
     dist, index = self.min_euclid_dist_one_to_many(q_nearest, [q_target]) # The distance between the initial and final state
     steps = int(dist / MAX_MOVE_AMOUNT) # Determine how many steps it will take to reach the final state
 
     #Try to extend all the way to the target, terminate at step if not possible
     for count in range(steps):
-      q_parent = q_nearest + (direction_vector)/steps*(count) # Calculate the parent to be each previous node
-      #print q_parent
-      q_add = q_nearest + (direction_vector)/steps*(count+1) # The next node is obtained by 'walking' on this direct line
-      print "in the extend loop"
+      q_parent = q_nearest + ((direction_vector)/steps)*(count) # Calculate the parent to be each previous node
+      q_add = q_nearest + ((direction_vector)/steps)*(count+1) # The next node is obtained by 'walking' on this direct line
       with self.env:
         self.robot.SetActiveDOFValues(q_add) # This is done for demo purposes. The robot will assume a configuration as it tests.
-      reach_limit = self.robot.CheckSelfCollision() or self.env.CheckCollision(self.robot) or self.limitcheck(q_add, lower, upper)# Collision checker
-      print 'reach limit is:', reach_limit
+      reach_limit = self.robot.CheckSelfCollision() or self.env.CheckCollision(self.robot) or self.limitcheck(q_add, lower, upper)
 
       if reach_limit:
-        #print reach_limit
-	    return None # Terminate the function of a collision occurs. 
+        return None # Terminate the function of a collision occurs. 
+      print "TREE, Q_ADD", tree, q_add
 
-      tree.append(q_add) # Add the first element to the tree
-      parent[self.convert_for_dict(q_add)] = q_parent # Update the parent dictionary	
+      isPresent = False
+      for node in tree:
+        if self.convert_for_dict(node) == self.convert_for_dict(q_add):
+          isPresent = True
+      if not isPresent:
+        print "================ADDED AN ELEMENT****************************************"
+        tree.append(q_add) # Add the first element to the tree
+        parent[self.convert_for_dict(q_add)] = q_parent # Update the parent dictionary	
     
     return
 
@@ -419,32 +412,36 @@ class RoboHandler:
   #######################################################
   # This function returns the trajectory that will move the robot
   #######################################################
-  def backtrace(self, parent, config1, config2):
-     path1 = []
+  def backtrace(self, start_parent, goal_parent, config1, config2):
+
      print "CONFIG 1",config1
      print "CONFIG 2",config2
+     path1 = []
      path1.append(config1)
      path2 = []
      path2.append(config2)
-     #print 'Inside the backtrace function'
-     #print path
-     #print start
-     while path1[-1] is not None:
-       #print parent[path[-1]]
-       path1.append(parent[self.convert_for_dict(path1[-1])])
-       #print path
 
-     while path2[-1] is not None:
-       path2.append(parent[self.convert_for_dict(path2[-1])])
+     print "START PARENT=========================================", start_parent
+     print "GOAL_PARENT---------------------------------------", goal_parent
 
-     path1.remove(None)
-     path2.remove(None)
+     while not path1[-1] is None:
+       print "BUILDING PATH 1", len(path1)
+       node = start_parent[self.convert_for_dict(path1[-1])]
+       path1.append(node)
+
+     while not path2[-1] is None:
+       print "BUILDING PATH 2", len(path2)
+       node = goal_parent[self.convert_for_dict(path2[-1])]
+       path2.append(node)
+
+     #path1.remove(None)
+     #path2.remove(None)
      
      path1.reverse()
      print "PATH 1", path1
      print "PATH 2", path2
      path = path1+path2
-     print path
+     #print path
      traj = self.points_to_traj(path)
      return traj
 
@@ -465,14 +462,14 @@ class RoboHandler:
   # Convert to and from numpy array to a hashable function
   #######################################################
   def convert_for_dict(self, item):
-    #return tuple(np.int_(item*100))
+    return tuple(np.int_(item*100))
     #return tuple(item)
-    return tuple(np.around(item,decimals = 3))
+    #return tuple(np.around(item,decimals = 3))
 
   def convert_from_dictkey(self, item):
-    #return np.array(item)/100.
+    return np.array(item)/100.
     #return np.array(item)
-    return np.array(np.around(item,decimals = 3))
+    #return np.array(np.around(item,decimals = 3))
 
 
   def points_to_traj(self, points):
