@@ -10,9 +10,11 @@ import math
 import numpy as np
 np.random.seed(0)
 import scipy
-
+from random import choice
 import collections
 import Queue
+
+from openravepy import IkParameterizationType, IkParameterization, RaveCreateKinBody, raveLogInfo, raveLogWarn, IkFilterOptions
 
 # OpenRAVE
 import openravepy
@@ -47,6 +49,14 @@ openravepy.misc.InitOpenRAVELogging()
 #constant for max distance to move any joint in a discrete step
 MAX_MOVE_AMOUNT = 0.1
 
+#Constant for the maximum +/- distance in z
+ERROR = .01 
+
+#Constant for probability of choosing a random target
+PROB_RAND_TARGET = .9
+
+#Constant for distance of current state near goal to determine the termination of the algorithm
+DIST_THRESH = 0.8
 
 class RoboHandler:
   def __init__(self):
@@ -112,7 +122,7 @@ class RoboHandler:
   def run_problem_constrain_birrt(self):
     self.robot.GetController().Reset()
     #startconfig = np.array([ 4.54538305,  1.05544618,  0., -0.50389025, -3.14159265,  0.55155592, -2.97458672])
-    startconfig = np.array([ 2.37599388,-0.32562851, 0.,         1.61876989,-3.14159265, 1.29314139, -0.80519756])
+    startconfig = np.array([ 2.37599388,-0.32562851, 0.,  1.61876989,-3.14159265, 1.29314139, -0.80519756])
 
     # move hand to preshape of grasp
     # --- important --
@@ -247,17 +257,240 @@ class RoboHandler:
   # RETURN: a trajectory to the goal
   #######################################################
   def constrain_birrt_to_goal(self, goals):
+    print 'Starting CBiRRT Algorithm'
+
+    #The z value that the arm must remain within +/- 1cm
     z_val_orig = self.manip.GetTransform()[2,3]
 
-    return None
+    #goals = np.array(goals) #Bring the goals into an np array
+    
+    q_initial = self.robot.GetActiveDOFValues() # Initial state is a np array
+    print "INITIAL POSITION", q_initial
+    q_initial_tuple = self.convert_for_dict(q_initial) # This is the tuple for initial state
+    q_nearest = q_initial # This is the initialization for nearest point in np array format
+    thresh = DIST_THRESH # The threshold to determine if the goal is reached or not
+    
+    #Initialize the tree for the start node
+    start_tree = [q_initial]
+
+    #start_tree.append(q_initial_tuple)
+    #Initialize the parent dictionary for the start node
+    start_parent = {}
+    start_parent[q_initial_tuple] = None # Dictionary to store the start_parents
+
+
+    #trees = np.array([]) #np array to store goal trees
+    #parents = np.array() #np array to store goal parent dictionaries
+
+    #Now take all the goals and make a tree to add to the array of goals and make a dictionary of child (key) parents (value) to add to the array of parents
+    goal_tree=[]
+    goal_parent={}
+    for goal in goals:    
+      goal_parent[self.convert_for_dict(goal)] = None
+      goal_tree.append(goal)
+    #for keys in parent:
+    #  print 'The first key value pairs are', keys, parent[keys]
+
+    #Find the lower and upper limits of the joint angles
+    lower, upper = self.robot.GetActiveDOFLimits() # Get the joint limits
+    
+
+
+    q_target, q_nearest, min_dist = self.rrt_choose_target_from_start(start_tree, goal_tree, lower, upper)
+    q_target2, q_nearest2, min_dist2 = self.rrt_choose_target_from_start(start_tree, goal_tree, lower, upper)
+    print 'Q Target is', q_target
+
+    print '==============='
+
+    print 'Q Target2 is', q_target2
+    new_config = self.project_z_val_manip(q_target2, z_val_orig, lower, upper)
+    print 'New config is', new_config
+    traj = self.points_to_traj(np.array([[ 4.26617914, -0.33212585, -0.3       ,  1.17672238, -2.49433951,
+        -1.39568075,  2.97389387],
+       [ 2.0687755 ,  0.2760535 , -0.5       , -0.7156698 , -0.02411247,
+        -1.53420622, -2.81613962],
+       [ 5.38829682, -0.30193089,  2.7       , -0.7156698 , -0.23760322,
+        -1.54818631, -2.70997013],
+       [ 5.03751866, -0.25019943,  2.6       , -0.7156698 ,  0.17062029,
+        -1.54134808, -2.91343582]]))
+    
+    print 'transform', self.manip.GetEndEffectorTransform()
+    print 'z_val_orig', z_val_orig
+    return traj
 
 
   #TODO
   #######################################################
   # projects onto the constraint of that z value
   #######################################################
-  def project_z_val_manip(self, c, z_val):
-    return None
+  def project_z_val_manip(self, c, z_val, lower, upper):
+    
+    print 'passed c is' , c
+
+    #Try to set the robot to the desired configuration
+    with self.env:
+      self.robot.SetActiveDOFValues(c) # Sets the robot's DOFs to the passed configuration to test
+      reach_limit = self.robot.CheckSelfCollision() or self.env.CheckCollision(self.robot) or self.limitcheck(c, lower, upper) #This needs to be under the self.env block!
+    print 'Reach limit is', reach_limit
+    #If collisions or joint limits are reached, exit and return none
+    if reach_limit:
+      return None # Terminate the function of a collision occurs.
+
+    #Get the transform of this configuration
+    transform = self.manip.GetEndEffectorTransform()
+    print 'The transform is', transform
+    z_transform = transform[2,3]
+    print 'The current z value is', z_transform
+
+    #Now figure out how to change z value of transform
+    #If the z_value is above the positive error, project down to the z+error plane
+    if z_transform > z_val+ERROR:
+       transform[2,3] = z_val + ERROR
+       print 'projected to positive error plane'
+    #If the z_value is below the negative error, project back up to the z-error plane
+    elif z_transform < z_val-ERROR:
+       transform[2,3] = z_val - ERROR
+       print 'projected to negative error plane'
+    #Otherwise, project back to the origin z_val
+    else:
+       transform[2,3] = z_val
+       print 'projected to center'
+    
+    print 'Transform is now', transform
+    new_config = self.manip.FindIKSolution(transform, IkFilterOptions.CheckEnvCollisions)
+    #[0:2,3]
+    
+    return new_config
+
+  #######################################################
+  # The choose target from start function either returns a random 
+  # configuration or the closest randomly selected configuration 
+  # from the goal tree. This configuration will be the target to which the 
+  # tree tries to expand to. The function also returns the nearest configuration
+  # on the start tree and the minimum distance by taking advantage of rrt_nearest
+  #######################################################
+  def rrt_choose_target_from_start(self, start_tree, goal_tree, lower, upper):
+    
+    if (np.random.random_sample()<PROB_RAND_TARGET):
+      q_target = np.array(lower+np.random.rand(len(lower))*(upper-lower)) #Choose a random configuration
+      print 'RANDOM target from start to goal chosen'
+
+    #Otherwise choose the closest of a random selection from each of the goal trees
+    else:
+      q_target = choice(goal_tree)
+      print 'specific target from start to goal chosen', q_target
+
+    min_dist, q_nearest, nearest_start_tree_index = self.rrt_nearest(start_tree, q_target)
+    return q_target, q_nearest, min_dist
+
+
+  #######################################################
+  # The choose target from goal function either returns a random 
+  # configuration or the closest randomly selected configuration 
+  # from the start tree. This configuration will be the target to which the 
+  # tree tries to expand to. 
+  #######################################################
+  def rrt_choose_target_from_goal(self, start_tree, goal_tree, lower, upper):
+    
+    if (np.random.random_sample()< PROB_RAND_TARGET):
+      q_target = np.array(lower+np.random.rand(len(lower))*(upper-lower)) #Choose a random configuration
+      #print 'random target from goal to start chosen'
+
+    else:
+      q_target=choice(start_tree)
+      #print 'specific target from goal to start chosen', q_target
+
+    min_dist, q_nearest, nearest_goal_tree_index = self.rrt_nearest(goal_tree, q_target)
+    return q_target, q_nearest, min_dist
+
+  #######################################################
+  #  The nearest function returns the point in the tree thus far that is 
+  #  nearest to the target point and chosen in the previous function
+  #######################################################
+  def rrt_nearest(self, tree, q_target):
+    min_dist, index_nearest = self.min_euclid_dist_one_to_many(q_target,tree) # Determine the nearest point
+    q_nearest = tree[index_nearest] #Assign and then return the nearest point in the tree
+    return min_dist, q_nearest, index_nearest
+
+  ##################################################################################################
+  #  The extend function extends the nearest node on the tree to the target in increments as long as
+  #  it is allowed. Otherwise it extends until possible and then terminates
+  ##################################################################################################
+  def rrt_extend(self, q_nearest, q_target, tree, parent, lower, upper, z_val):
+
+    direction_vector = q_target - q_nearest # Obtain the direction of the direct line from initial to goal state
+    dist, index = self.min_euclid_dist_one_to_many(q_nearest, [q_target]) # The distance between the initial and final state
+    #steps = int(dist / MAX_MOVE_AMOUNT) # Determine how many steps it will take to reach the final state
+
+    #Find the projection of q_target
+    q_target_proj = project_z_val_manip(self, q_target, z_val, lower, upper)
+    
+    #Find the projection of q_nearest
+    q_nearest_proj = project_z_val_manip(q_nearest, z_val, lower, upper)
+    #Try to extend all the way to the target, terminate at step if not possible
+    
+    dist, index = self.min_euclid_dist_one_to_many(q_nearest, [q_target_proj]) # The distance between the initial and final state
+    #for count in range(steps):
+(direction_vector/dist)*MAX_MOVE_AMOUNT
+    while(dist > DIST_THRESH):
+      direction_vector = q_target - q_add
+      q_parent = q_nearest_proj + ((direction_vector)/steps)*(count) # Calculate the parent to be each previous node
+      q_add = q_nearest + ((direction_vector)/steps)*(count+1) # The next node is obtained by 'walking' on this direct line
+      with self.env:
+        self.robot.SetActiveDOFValues(q_add) # This is done for demo purposes. The robot will assume a configuration as it tests.
+        reach_limit = self.robot.CheckSelfCollision() or self.env.CheckCollision(self.robot) or self.limitcheck(q_add, lower, upper) #This needs to be under the self.env block!
+
+      if reach_limit:
+        return None # Terminate the function of a collision occurs. 
+      #print "TREE, Q_ADD", tree, q_add
+
+      isPresent = False
+      for node in tree:
+        if self.convert_for_dict(node) == self.convert_for_dict(q_add):
+          isPresent = True
+      if not isPresent:
+        #print "================ADDED AN ELEMENT****************************************"
+        tree.append(q_add) # Add the first element to the tree
+        parent[self.convert_for_dict(q_add)] = q_parent # Update the parent dictionary	
+    
+    return
+
+
+  #######################################################
+  # This function returns the trajectory that will move the robot
+  #######################################################
+  def backtrace(self, start_parent, goal_parent, config1, config2):
+
+     print "CONFIG 1",config1
+     print "CONFIG 2",config2
+     path1 = []
+     path1.append(config1)
+     path2 = []
+     path2.append(config2)
+
+     print "START PARENT=========================================", start_parent
+     print "GOAL_PARENT---------------------------------------", goal_parent
+
+     while not path1[-1] is None:
+       print "BUILDING PATH 1", len(path1)
+       node = start_parent[self.convert_for_dict(path1[-1])]
+       path1.append(node)
+
+     while not path2[-1] is None:
+       print "BUILDING PATH 2", len(path2)
+       node = goal_parent[self.convert_for_dict(path2[-1])]
+       path2.append(node)
+
+     path1.remove(None)
+     path2.remove(None)
+     
+     path1.reverse()
+     print "PATH 1", path1
+     print "PATH 2", path2
+     path = path1+path2
+     #print path
+     traj = self.points_to_traj(path)
+     return traj
 
   #######################################################
   # Convert to and from numpy array to a hashable function
@@ -278,7 +511,17 @@ class RoboHandler:
     openravepy.planningutils.RetimeActiveDOFTrajectory(traj,self.robot,hastimestamps=False,maxvelmult=1,maxaccelmult=1,plannername='ParabolicTrajectoryRetimer')
     return traj
 
-
+  #######################################################
+  #######################################################
+   # Limit Check
+   # if the current state reaches the limit, the function returns true
+   # We are using this function to create a boundary for the search space in all the 7 dimensions
+   # The robot will not be allowed to go beyond its DOF limits
+   ########################################################  
+  def limitcheck(self, state, lower, upper):
+    true_num = sum(state>=lower)+sum(state<=upper)
+    #print true_num
+    return true_num < 14
 
 
   #######################################################
@@ -322,5 +565,6 @@ class RoboHandler:
 
 if __name__ == '__main__':
   robo = RoboHandler()
-  #time.sleep(10000) #to keep the openrave window open
+  robo.run_problem_constrain_birrt()
+  time.sleep(5) #to keep the openrave window open
   
