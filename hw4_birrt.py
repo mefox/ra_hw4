@@ -56,10 +56,10 @@ openravepy.misc.InitOpenRAVELogging()
 MAX_MOVE_AMOUNT = 0.1
 
 #Constant for probability of choosing a random target
-PROB_RAND_TARGET = 1
+PROB_RAND_TARGET = 0.9
 
 #Constant for distance of current state near goal to determine the termination of the algorithm
-DIST_THRESH = 0.1
+DIST_THRESH = 0.8
 
 class RoboHandler:
   def __init__(self):
@@ -300,8 +300,8 @@ class RoboHandler:
     tree_not_connected = True
     print 'Completed initialization, lets make some trees!'
     dist_between_trees, idx1, idx2 = self.min_euclid_dist_many_to_many(start_tree, goal_tree)
-    print "DISTANCE Initial: ",dist_between_trees
     while(dist_between_trees>DIST_THRESH): # Keep checking if the tree has not already reached a nearest goal   
+      #print "DISTANCE Initial: ",dist_between_trees
       #First grow start tree
       q_target, q_nearest, min_dist = self.rrt_choose_target_from_start(start_tree, goal_tree, lower, upper) 
       #print "FOR START TREE - Q-TARGET, Q-NEAREST",q_target, q_nearest
@@ -314,7 +314,8 @@ class RoboHandler:
       
       q_target, q_nearest, min_dist = self.rrt_choose_target_from_goal(start_tree,goal_tree, lower, upper) # Function returns a randomly chosen configuration or a nearest goal to the tree
       #print "FOR GOAL TREE - Q-TARGET, Q-NEAREST",q_target, q_nearest
-      self.rrt_extend(q_nearest, q_target, start_tree, goal_parent, lower, upper)      
+      # Incorrect - needs to use goal tree, not start tree- self.rrt_extend(q_nearest, q_target, start_tree, goal_parent, lower, upper)
+      self.rrt_extend(q_nearest, q_target, goal_tree, goal_parent, lower, upper)      
       dist_between_trees, idx1, idx2 = self.min_euclid_dist_many_to_many(start_tree, goal_tree)
 
       print "DISTANCE after goal tree extend: ",dist_between_trees
@@ -391,18 +392,18 @@ class RoboHandler:
       q_add = q_nearest + ((direction_vector)/steps)*(count+1) # The next node is obtained by 'walking' on this direct line
       with self.env:
         self.robot.SetActiveDOFValues(q_add) # This is done for demo purposes. The robot will assume a configuration as it tests.
-      reach_limit = self.robot.CheckSelfCollision() or self.env.CheckCollision(self.robot) or self.limitcheck(q_add, lower, upper)
+        reach_limit = self.robot.CheckSelfCollision() or self.env.CheckCollision(self.robot) or self.limitcheck(q_add, lower, upper) #This needs to be under the self.env block!
 
       if reach_limit:
         return None # Terminate the function of a collision occurs. 
-      print "TREE, Q_ADD", tree, q_add
+      #print "TREE, Q_ADD", tree, q_add
 
       isPresent = False
       for node in tree:
         if self.convert_for_dict(node) == self.convert_for_dict(q_add):
           isPresent = True
       if not isPresent:
-        print "================ADDED AN ELEMENT****************************************"
+        #print "================ADDED AN ELEMENT****************************************"
         tree.append(q_add) # Add the first element to the tree
         parent[self.convert_for_dict(q_add)] = q_parent # Update the parent dictionary	
     
@@ -434,8 +435,8 @@ class RoboHandler:
        node = goal_parent[self.convert_for_dict(path2[-1])]
        path2.append(node)
 
-     #path1.remove(None)
-     #path2.remove(None)
+     path1.remove(None)
+     path2.remove(None)
      
      path1.reverse()
      print "PATH 1", path1
@@ -462,13 +463,13 @@ class RoboHandler:
   # Convert to and from numpy array to a hashable function
   #######################################################
   def convert_for_dict(self, item):
-    return tuple(np.int_(item*100))
-    #return tuple(item)
+    #return tuple(np.int_(item*100))
+    return tuple(item)
     #return tuple(np.around(item,decimals = 3))
 
   def convert_from_dictkey(self, item):
-    return np.array(item)/100.
-    #return np.array(item)
+    #return np.array(item)/100.
+    return np.array(item)
     #return np.array(np.around(item,decimals = 3))
 
 
