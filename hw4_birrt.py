@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 # TESTING GIT MERGE
-//Blah
+
 PACKAGE_NAME = 'hw4'
 
 # Standard Python Imports
@@ -14,6 +14,7 @@ import scipy
 
 import collections
 import Queue
+from random import choice
 
 # OpenRAVE
 import openravepy
@@ -55,14 +56,10 @@ openravepy.misc.InitOpenRAVELogging()
 MAX_MOVE_AMOUNT = 0.1
 
 #Constant for probability of choosing a random target
-PROB_RAND_TARGET = 0.9
+PROB_RAND_TARGET = 1
 
 #Constant for distance of current state near goal to determine the termination of the algorithm
-DIST_THRESH = 0.8
-
-#constant for max distance to move any joint in a discrete step
-MAX_MOVE_AMOUNT = 0.1
-
+DIST_THRESH = 0.1
 
 class RoboHandler:
   def __init__(self):
@@ -99,10 +96,12 @@ class RoboHandler:
   #######################################################
   def problem_init(self):
     self.target_kinbody = self.env.GetKinBody("target")
-
+    print "initializing the problem"
     # create a grasping module
     self.gmodel = openravepy.databases.grasping.GraspingModel(self.robot, self.target_kinbody)
     
+
+    print "loading grasps"
     # load grasps
     if not self.gmodel.load():
       self.gmodel.autogenerate()
@@ -110,6 +109,7 @@ class RoboHandler:
     self.grasps = self.gmodel.grasps
     self.graspindices = self.gmodel.graspindices
 
+    print "loading ik model"
     # load ikmodel
     self.ikmodel = openravepy.databases.inversekinematics.InverseKinematicsModel(self.robot,iktype=openravepy.IkParameterization.Type.Transform6D)
     if not self.ikmodel.load():
@@ -117,7 +117,8 @@ class RoboHandler:
 
     # create taskmanip
     self.taskmanip = openravepy.interfaces.TaskManipulation(self.robot)
-  
+
+    print "moving the left arm away"  
     # move left arm out of way
     self.robot.SetDOFValues(np.array([4,2,0,-1,0,0,0]),self.robot.GetManipulator('left_wam').GetArmIndices() )
 
@@ -202,10 +203,13 @@ class RoboHandler:
 
     # get the trajectory!
     traj = self.birrt_to_goal(goals)
+    #print traj
 
     with self.env:
       self.robot.SetActiveDOFValues([5.459, -0.981,  -1.113,  1.473 , -1.124, -1.332,  1.856])
 
+    print "TRAVERSING THE PATH NOW"
+    time.sleep(5)
     self.robot.GetController().SetPath(traj)
     self.robot.WaitForController(0)
     self.taskmanip.CloseFingers()
@@ -259,117 +263,185 @@ class RoboHandler:
   #######################################################
   def birrt_to_goal(self, goals):
     print 'Starting BiRRT Algorithm'
-    goals = np.array(goals) #Bring the goals into an np array
+    #goals = np.array(goals) #Bring the goals into an np array
     q_initial = self.robot.GetActiveDOFValues() # Initial state is a np array
+    print "INITIAL POSITION", q_initial
     q_initial_tuple = self.convert_for_dict(q_initial) # This is the tuple for initial state
     q_nearest = q_initial # This is the initialization for nearest point in np array format
-
     thresh = DIST_THRESH # The threshold to determine if the goal is reached or not
     
     #Initialize the tree for the start node
-    start_tree.append(q_initial_tuple)
-    trees[0] = start_tree
+    start_tree = [q_initial]
 
+    #start_tree.append(q_initial_tuple)
     #Initialize the parent dictionary for the start node
-    start_parents[q_initial_tuple] = None # Dictionaay to store the start_parents
-    parents[0] = start_parents
+    start_parent = {}
+    start_parent[q_initial_tuple] = None # Dictionary to store the start_parents
 
-    #Now take all the goals and make a tree to add to the array of goals and make a dictionary of child (key) parents (value) to add to the array of parent
-    i = 1
-    for goal in goals:
-        goal_tree.append(self.convert_for_dict(goal))
-        trees[i] = goal_tree       
-        
-        goal_parents[self.convert_for_dict(goal)] = None
-        parents[i]= goal_parents
-        i=i+1
+
+    #trees = np.array([]) #np array to store goal trees
+    #parents = np.array() #np array to store goal parent dictionaries
+
+    #Now take all the goals and make a tree to add to the array of goals and make a dictionary of child (key) parents (value) to add to the array of parents
+    goal_tree=[]
+    goal_parent={}
+    for goal in goals:    
+      goal_parent[self.convert_for_dict(goal)] = None
+      goal_tree.append(goal)
+    #for keys in parent:
+    #  print 'The first key value pairs are', keys, parent[keys]
 
     #Find the lower and upper limits of the joint angles
     lower, upper = self.robot.GetActiveDOFLimits() # Get the joint limits
 
     # Calculate the minimum distance between closest node of the tree and the closest goal. Return both indices
     # Important to note here that the INDEX is being returned
-    dist, closest_goal, closest_point = self.min_euclid_dist_many_to_many(goals, self.convert_from_dictkey(tree)) #Consider commenting?
-    
+    #dist, closest_goal, closest_point = self.min_euclid_dist_many_to_many(goals, self.convert_from_dictkey(tree)) #Consider commenting?
+    tree_not_connected = True
     print 'Completed initialization, lets make some trees!'
-    while(dist>thresh): # Keep checking if the tree has not already reached a nearest goal
-        for tree in trees
-            q_target = self.rrt_choose_target(goals, lower, upper, closest_goal) # Function returns a randomly chosen configuration or a nearest goal to the tree
-            q_nearest = 
-            
-            
-    return None
+    dist_between_trees, idx1, idx2 = self.min_euclid_dist_many_to_many(start_tree, goal_tree)
+    print "DISTANCE Initial: ",dist_between_trees
+    while(dist_between_trees>DIST_THRESH): # Keep checking if the tree has not already reached a nearest goal   
+      #First grow start tree
+      q_target, q_nearest, min_dist = self.rrt_choose_target_from_start(start_tree, goal_tree, lower, upper) 
+      #print "FOR START TREE - Q-TARGET, Q-NEAREST",q_target, q_nearest
+      self.rrt_extend(q_nearest, q_target, start_tree, start_parent, lower, upper)
 
-#######################################################
-  # The choose target function either returns the best goal or a random 
-  # configuration. This configuration will be the target to which the 
-  # tree tries to expand to. Best goal is goal nearest to tree
+      dist_between_trees, idx1, idx2 = self.min_euclid_dist_many_to_many(start_tree, goal_tree)
+      print "DISTANCE after start_tree extend: ",dist_between_trees      
+      if (dist_between_trees < DIST_THRESH):
+         break
+      
+      q_target, q_nearest, min_dist = self.rrt_choose_target_from_goal(start_tree,goal_tree, lower, upper) # Function returns a randomly chosen configuration or a nearest goal to the tree
+      #print "FOR GOAL TREE - Q-TARGET, Q-NEAREST",q_target, q_nearest
+      self.rrt_extend(q_nearest, q_target, start_tree, goal_parent, lower, upper)      
+      dist_between_trees, idx1, idx2 = self.min_euclid_dist_many_to_many(start_tree, goal_tree)
+
+      print "DISTANCE after goal tree extend: ",dist_between_trees
+
+    config1 = start_tree[idx1]
+    config2 = goal_tree[idx2]
+       
+    return self.backtrace(start_parent, goal_parent, config1, config2) # The backtrace function gives the path. Return the path
+             
+    #return None
+
   #######################################################
-  def rrt_choose_target(self, goals, lower, upper, closest_goal):
-    p = PROB_RAND_TARGET # The probability of choosing a random configuration
-    if (np.random.random_sample()<p):
-	q_target = np.array(lower+np.random.rand(len(lower))*(upper-lower)) #Choose a random configuration
-	#print 'A random configuration is chosen'
+  # The choose target from start function either returns a random 
+  # configuration or the closest randomly selected configuration 
+  # from the goal tree. This configuration will be the target to which the 
+  # tree tries to expand to. The function also returns the nearest configuration
+  # on the start tree and the minimum distance by taking advantage of rrt_nearest
+  #######################################################
+  def rrt_choose_target_from_start(self, start_tree, goal_tree, lower, upper):
+    
+    if (np.random.random_sample()<PROB_RAND_TARGET):
+      q_target = np.array(lower+np.random.rand(len(lower))*(upper-lower)) #Choose a random configuration
+      #print 'RANDOM target from start to goal chosen'
+
+    #Otherwise choose the closest of a random selection from each of the goal trees
     else:
-	q_target = goals[closest_goal] #Choose a nearest goal 
-	#print 'A goal is chosen as the target'
-   # print q_target
-    return q_target 
+      q_target = choice(goal_tree)
+      #print 'specific target from start to goal chosen', q_target
+
+    min_dist, q_nearest, nearest_start_tree_index = self.rrt_nearest(start_tree, q_target)
+    return q_target, q_nearest, min_dist
+
+  #######################################################
+  # The choose target from goal function either returns a random 
+  # configuration or the closest randomly selected configuration 
+  # from the start tree. This configuration will be the target to which the 
+  # tree tries to expand to. 
+  #######################################################
+  def rrt_choose_target_from_goal(self, start_tree, goal_tree, lower, upper):
+    
+    if (np.random.random_sample()< PROB_RAND_TARGET):
+      q_target = np.array(lower+np.random.rand(len(lower))*(upper-lower)) #Choose a random configuration
+      #print 'random target from goal to start chosen'
+
+    else:
+      q_target=choice(start_tree)
+      #print 'specific target from goal to start chosen', q_target
+
+    min_dist, q_nearest, nearest_goal_tree_index = self.rrt_nearest(goal_tree, q_target)
+    return q_target, q_nearest, min_dist
 
   #######################################################
   #  The nearest function returns the point in the tree thus far that is 
   #  nearest to the target point and chosen in the previous function
   #######################################################
   def rrt_nearest(self, tree, q_target):
-    dist, index_nearest = self.min_euclid_dist_one_to_many(q_target, self.convert_from_dictkey(tree)) # Determine the nearest point
-    q_nearest = self.convert_from_dictkey(tree[index_nearest]) #Assign and then return the nearest point in the tree
-    return q_nearest, index_nearest
+    min_dist, index_nearest = self.min_euclid_dist_one_to_many(q_target,tree) # Determine the nearest point
+    q_nearest = tree[index_nearest] #Assign and then return the nearest point in the tree
+    return min_dist, q_nearest, index_nearest
 
   ##################################################################################################
   #  The extend function extends the nearest node on the tree to the target in increments as long as
   #  it is allowed. Otherwise it extends until possible and then terminates
   ##################################################################################################
   def rrt_extend(self, q_nearest, q_target, tree, parent, lower, upper):
+
     direction_vector = q_target - q_nearest # Obtain the direction of the direct line from initial to goal state
-#    print q_nearest
-#    print q_target
     dist, index = self.min_euclid_dist_one_to_many(q_nearest, [q_target]) # The distance between the initial and final state
     steps = int(dist / MAX_MOVE_AMOUNT) # Determine how many steps it will take to reach the final state
 
+    #Try to extend all the way to the target, terminate at step if not possible
     for count in range(steps):
-      q_parent = q_nearest + (direction_vector)/steps*(count) # Calculate the parent to be each previous node
-      #print q_parent
-      q_add = q_nearest + (direction_vector)/steps*(count+1) # The next node is obtained by 'walking' on this direct line
-
+      q_parent = q_nearest + ((direction_vector)/steps)*(count) # Calculate the parent to be each previous node
+      q_add = q_nearest + ((direction_vector)/steps)*(count+1) # The next node is obtained by 'walking' on this direct line
       with self.env:
         self.robot.SetActiveDOFValues(q_add) # This is done for demo purposes. The robot will assume a configuration as it tests.
-      reach_limit = self.robot.CheckSelfCollision() or self.env.CheckCollision(self.robot) or self.limitcheck(q_add, lower, upper)# Collision checker
-      #print reach_limit
+      reach_limit = self.robot.CheckSelfCollision() or self.env.CheckCollision(self.robot) or self.limitcheck(q_add, lower, upper)
 
       if reach_limit:
-        #print reach_limit
-	return None # Terminate the function of a collision occurs. 
+        return None # Terminate the function of a collision occurs. 
+      print "TREE, Q_ADD", tree, q_add
 
-      tree.append(q_add) # Add the first element to the tree
-      parent[self.convert_for_dict(q_add)] = q_parent # Update the parent dictionary	
-    return None
+      isPresent = False
+      for node in tree:
+        if self.convert_for_dict(node) == self.convert_for_dict(q_add):
+          isPresent = True
+      if not isPresent:
+        print "================ADDED AN ELEMENT****************************************"
+        tree.append(q_add) # Add the first element to the tree
+        parent[self.convert_for_dict(q_add)] = q_parent # Update the parent dictionary	
+    
+    return
 
 
   #######################################################
   # This function returns the trajectory that will move the robot
   #######################################################
-  def backtrace(self, parent, start, end):
-     path = []
-     path.append(end)
-     #print 'Inside the backtrace function'
+  def backtrace(self, start_parent, goal_parent, config1, config2):
+
+     print "CONFIG 1",config1
+     print "CONFIG 2",config2
+     path1 = []
+     path1.append(config1)
+     path2 = []
+     path2.append(config2)
+
+     print "START PARENT=========================================", start_parent
+     print "GOAL_PARENT---------------------------------------", goal_parent
+
+     while not path1[-1] is None:
+       print "BUILDING PATH 1", len(path1)
+       node = start_parent[self.convert_for_dict(path1[-1])]
+       path1.append(node)
+
+     while not path2[-1] is None:
+       print "BUILDING PATH 2", len(path2)
+       node = goal_parent[self.convert_for_dict(path2[-1])]
+       path2.append(node)
+
+     #path1.remove(None)
+     #path2.remove(None)
+     
+     path1.reverse()
+     print "PATH 1", path1
+     print "PATH 2", path2
+     path = path1+path2
      #print path
-     #print start
-     while path[-1] != start:
-       #print parent[path[-1]]
-       path.append(self.convert_for_dict(parent[path[-1]]))
-       #print path	
-     path.reverse()
-     path = np.array(path)#/100.
      traj = self.points_to_traj(path)
      return traj
 
@@ -390,13 +462,14 @@ class RoboHandler:
   # Convert to and from numpy array to a hashable function
   #######################################################
   def convert_for_dict(self, item):
-    #return tuple(np.int_(item*100))
-    return tuple(item)
+    return tuple(np.int_(item*100))
+    #return tuple(item)
+    #return tuple(np.around(item,decimals = 3))
 
   def convert_from_dictkey(self, item):
-    #return np.array(item)/100.
-    return np.array(item)
-
+    return np.array(item)/100.
+    #return np.array(item)
+    #return np.array(np.around(item,decimals = 3))
 
 
   def points_to_traj(self, points):
@@ -451,5 +524,7 @@ class RoboHandler:
 
 if __name__ == '__main__':
   robo = RoboHandler()
-  #time.sleep(10000) #to keep the openrave window open
+  print "calling "
+  robo.run_problem_birrt()
+  time.sleep(30) #to keep the openrave window open
   

@@ -353,22 +353,35 @@ class RoboHandler:
 
 
   #######################################################
-  # This function returns the trajectory that will move the robot
+  # This function returns the trajectory that will move the robot by taking
+  # two configurations and traversing the parent dictionary until the value is "None"
+  # on both sides. Config1 is directed towards the start whereas config2 is directed
+  # towards one of the goals
   #######################################################
-  def backtrace(self, parent, start, end):
-     path = []
-     path.append(end)
+  def backtrace(self, parent, config1, config2):
+     path1 = []
+     path1.append(config1)
+     path2 = []
+     path2.append(config2)
      #print 'Inside the backtrace function'
      #print path
      #print start
-     while path[-1] != start:
+     while path1[-1] != None:
        #print parent[path[-1]]
        path.append(self.convert_for_dict(parent[path[-1]]))
-       #print path	
-     path.reverse()
-     path = np.array(path)#/100.
+       #print path
+
+     while path2[-1] != None:
+       path.append(self.convert_for_dict(parent[path[-1]]))	
+
+     path1.remove(None)
+     path2.remove(None)
+
+     path1.reverse()
+     path = np.array(path1, path2)
      traj = self.points_to_traj(path)
      return traj
+
   #######################################################
   #######################################################
    # Limit Check
