@@ -50,9 +50,9 @@ openravepy.misc.InitOpenRAVELogging()
 #this constant is for arm movement!
 MAX_MOVE_AMOUNT = 0.1
 
-	WHEEL_RADIUS = 0.20
-	ROBOT_LENGTH = 0.25
-	TIMESTEP_AMOUNT = 0.02
+WHEEL_RADIUS = 0.20
+ROBOT_LENGTH = 0.25
+TIMESTEP_AMOUNT = 0.02
 
 
 class RoboHandler:
@@ -60,8 +60,9 @@ class RoboHandler:
     self.openrave_init()
     self.problem_init()
 
-    self.run_problem_navsearch()
+    #self.run_problem_navsearch()
     #self.run_problem_nav_and_grasp()
+
 
   #######################################################
   # the usual initialization for openrave
@@ -154,14 +155,9 @@ class RoboHandler:
     base_transforms = self.astar_to_transform(goal_trans)
 
     with self.env:
-      #SHIT
-
       self.robot.SetTransform(self.start_trans)
 
     self.run_basetranforms(base_transforms)
-
-    print "Should terminate now."
-    self.fuckthisshit()
 
 
   #######################################################
@@ -184,8 +180,7 @@ class RoboHandler:
 
     with self.env:
       self.robot.SetTransform(self.start_trans)
-      self.robot.SetActiveDOFVal
-ues(self.start_DOFS)
+      self.robot.SetActiveDOFValues(self.start_DOFS)
 
     self.run_basetranforms(base_transforms)
     self.robot.GetController().SetPath(arm_traj)
@@ -202,12 +197,12 @@ ues(self.start_DOFS)
     validgrasps,validindices = self.gmodel.computeValidGrasps(returnnum=num_goals) 
 
     curr_IK = self.robot.GetActiveDOFValues()
-    
+
     goal_dofs = np.array([])
     for grasp, graspindices in zip(validgrasps, validindices):
       Tgoal = self.gmodel.getGlobalGraspTransform(grasp, collisionfree=True)
       sols = self.manip.FindIKSolutions(Tgoal, openravepy.IkFilterOptions.CheckEnvCollisions)
-      
+
       # magic that makes sols only the unique elements - sometimes there are multiple IKs
       sols = np.unique(sols.view([('',sols.dtype)]*sols.shape[1])).view(sols.dtype).reshape(-1,sols.shape[1]) 
       sols_scores = []
@@ -267,47 +262,7 @@ ues(self.start_DOFS)
   # Thus, you should use self.full_transforms when returning!
   #######################################################
   def astar_to_transform(self, goal_transforms):
-    closedset = []    #The set of nodes already evaluated.
-    openset = []      # The set of tentative nodes to be evaluated, initially containing the start node
-    came_from = {}      # The map of navigated nodes. Should be dictionary
- 
-    g_score[start] := 0    # Cost from start along best known path.
-    # Estimated total cost from start to goal through y.
-    f_score[start] = g_score[start] + heuristic_cost_estimate(start, goal)
- 
-    #Fuck valid python man
-    while openset is not empty:
-  
-      #This uses a fucking priority queue. Just dequeue the first one.
-      current = the node in openset having the lowest f_score[] value
-      
-      #Make this robust to multiple goals.
-      if current = goal:
-        return reconstruct_path(came_from, goal)
- 
-      #Fucking dictionaries man.
-      remove current from openset
-      
-      #Again.
-      add current to closedset
-
-      
-      for each neighbor in neighbor_nodes(current):
-        tentative_g_score := g_score[current] + dist_between(current,neighbor)
-        if neighbor in closedset:
-          if tentative_g_score >= g_score[neighbor]:
-            continue
- 
-          if neighbor not in openset or tentative_g_score < g_score[neighbor]:
-            came_from[neighbor] := current
-            g_score[neighbor] := tentative_g_score
-            f_score[neighbor] := g_score[neighbor] + heuristic_cost_estimate(neighbor, goal)
-            if neighbor not in openset:
-              add neighbor to openset
- 
-      return failure
-   
-  return None
+    return None
 
 
   #######################################################
@@ -321,6 +276,8 @@ ues(self.start_DOFS)
         return True
     return False
 
+
+
   #TODO
   #######################################################
   # Initialize the movement transforms
@@ -328,29 +285,25 @@ ues(self.start_DOFS)
   # amount of time
   #######################################################
   def init_transition_transforms(self):
-
-    #Transition transform  - Transforms from initial to final
+    #Transition transforms - Difference between initial and final
     self.transition_transforms = []
 
-    #Full transforms - Lists of intermediate transforms
-    self.full_transforms = []
+    #Full transforms - Baby transforms
+    self.full_transforms = {}
     
+    #Combinations of controls
     control_options = []
-    
-    #Generate control options
     for w_1 in range(0, 11):
       for w_2 in range(0, 11):
-        control_options.append([w_1/10.0,w_2/10.0]);
-
-    #Add options for turns in place:
+        control_options.append([w_1/10.0, w_2/10.0])
+  
+    #Options to turn in place
     for w in range(0,11):
       control_options.append([w/10.0, -w/10.0])
       control_options.append([-w/10.0, w/10.0])
 
-    no_transform = params_to_transform(0,0,0);
-
-    #Generate transforms for varying amounts of time:
-    self.poop()
+    #Come up with list of transforms
+    
 
   #TODO
   #######################################################
@@ -358,29 +311,32 @@ ues(self.start_DOFS)
   # returns a list of all intermediate transforms
   #######################################################
   def controls_to_transforms(self,trans,controls,timestep_amount):
-    
-    params = transform_to_params(trans);
-    
-    # Need to make this work on a list of controls:
-    x = params[1]
-    y = params[2]
+
+    params = transform_to_params(trans)
+    x = params[0]
+    y = params[1]
     theta = params[2]
+    
+    transforms= []
+    for control in controls:
+      omega_1 = control[0]
+      omega_2 = control[1]
 
-    # 
-    omega_1 = controls[0]
-    omega_2 = controls[1]
+      x_dot = (-omega_1/2.0 * WHEEL_RADIUS * sin(theta)) - (omega_1/2.0 * WHEEL_RADIUS * sin(theta))
+      y_dot = (omega_2/2.0 * WHEEL_RADIUS * cos(theta)) - (omega_2/2.0 * WHEEL_RADIUS * cos(theta))
+      theta_dot = omega_1/(2*ROBOT_LENGTH)*WHEEL_RADIUS - omega_2/(2*ROBOT_LENGTH)*WHEEL_RADIUS
 
-    # 
-    x_dot = (-omega_1/2.0 * WHEEL_RADIUS * sin(theta)) - (omega_1/2.0 * WHEEL_RADIUS * sin(theta))
-    y_dot = (omega_2/2.0 * WHEEL_RADIUS * cos(theta)) - (omega_2/2.0 * WHEEL_RADIUS * cos(theta))
-    theta_dot = omega_1/(2*ROBOT_LENGTH)*WHEEL_RADIUS - omega_2/(2*ROBOT_LENGTH)*WHEEL_RADIUS
-  
-    # 
-    x = x + x_dot * timestep_amount
-    y = y + y_dot * timestep_amount
-    theta = theta + theta_dot * timestep_amount
+      x = timestep_amount*xdot
+      y = timestep_amount*ydot
+      theta = theta + (timestep_amount * thetadot)
 
-    return self.xyt_to_transform(x, y, theta)    
+      new_param = [x,y,timestep_amount * thetadot]      
+
+      newTransform = params_to_transform(new_param)
+      transforms.append(newTransform)
+    
+    return transforms
+    
 
   #TODO
   #######################################################
@@ -388,9 +344,6 @@ ues(self.start_DOFS)
   # transition arrays to it
   #######################################################
   def transition_config(self, config):
-    
-    #Why the fuck are the transition arrays not passed in as parameters here?
-
     return None
 
 
@@ -399,11 +352,6 @@ ues(self.start_DOFS)
   # Implement a heuristic for base navigation
   #######################################################
   def config_to_priorityqueue_tuple(self, dist, config, goals):
-    
-    # What the fuck is this supposed to be doing?
-
-    
-
     # make sure to replace the 0 with your priority queue value!
     return (0.0, config.tolist())
 
@@ -434,7 +382,6 @@ ues(self.start_DOFS)
 
   def transform_to_params(self,transform):
     return np.array([transform[0,3], transform[1,3], self.rot_matrix_to_angle(transform)])
-
   #######################################################
   # minimum distance from config to any goal in goals
   # distance metric: euclidean
@@ -465,6 +412,7 @@ ues(self.start_DOFS)
 
   def convert_from_dictkey_withround(self, item):
     return np.array(item)/100.
+
 
   def points_to_traj(self, points):
     traj = openravepy.RaveCreateTrajectory(self.env,'')
