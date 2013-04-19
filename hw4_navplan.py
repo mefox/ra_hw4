@@ -119,7 +119,7 @@ class RoboHandler:
 
     #initialize the transition transformations for base movmement
     self.init_transition_transforms()
-
+    self.run_problem_navsearch()
 
   #######################################################
   # navsearch to transform
@@ -282,9 +282,9 @@ class RoboHandler:
     
 
     #Initial state set-up
-    ini_state = self.config_to_priorityqueue_tuple(self.robot.GetTransform())
+    ini_state = self.config_to_priorityqueue_tuple(0, self.robot.GetTransform(), goal_transforms)
     open_queue.put(ini_state)
-    f_scores[ini_state] = ini_state[0]
+    g_scores[self.convert_for_dict(ini_state)] = ini_state[0]
 
     while not open_set.empty():
       #The node having the lowest f value
@@ -396,14 +396,14 @@ class RoboHandler:
 
     
     for control in control_options:
-      transition_transforms.append(self.calculate_transition_transform(control, 1))
+      self.transition_transforms.append(self.calculate_transition_transform(control, 1))
       # Add smaller transitions later; use dictionary or some shit like that
 
 
     #Debug this function.
     # Please work.
-    print "THESE ARE THE TRANSFORMS, BRO: \n"
-    print transforms
+    #print "THESE ARE THE TRANSFORMS, BRO: \n"
+    #print self.transition_transforms
 
   #######################################################
   # Dan Smith - turns controls given into transform
@@ -414,17 +414,19 @@ class RoboHandler:
     y = 0
     theta = 0
     
+    omega_1 = controls[0]
+    omega_2 = controls[1]
     for t in range(0, int(time/TIMESTEP_AMOUNT)):
-      x_dot = (-omega_1/2.0 * WHEEL_RADIUS * sin(theta)) - (omega_1/2.0 * WHEEL_RADIUS * sin(theta))
-      y_dot = (omega_2/2.0 * WHEEL_RADIUS * cos(theta)) - (omega_2/2.0 * WHEEL_RADIUS * cos(theta))
+      x_dot = (-omega_1/2.0 * WHEEL_RADIUS * np.sin(theta)) - (omega_1/2.0 * WHEEL_RADIUS * np.sin(theta))
+      y_dot = (omega_2/2.0 * WHEEL_RADIUS * np.cos(theta)) - (omega_2/2.0 * WHEEL_RADIUS * np.cos(theta))
       theta_dot = omega_1/(2*ROBOT_LENGTH)*WHEEL_RADIUS - omega_2/(2*ROBOT_LENGTH)*WHEEL_RADIUS
 
-      x = x + x_dot*timestep_amount
-      y = y + y_dot*timestep_amount
-      theta = theta + theta_dot*timestep_amount
+      x = x + x_dot*TIMESTEP_AMOUNT
+      y = y + y_dot*TIMESTEP_AMOUNT
+      theta = theta + theta_dot*TIMESTEP_AMOUNT
     
     # The change in x y and theta from 0 should give the transform
-    return params_to_transform([x, y, theta])
+    return self.params_to_transform([x, y, theta])
    
 
   #TODO
@@ -550,9 +552,18 @@ class RoboHandler:
   # returns the distance AND closest goal
   #######################################################
   def min_euclid_dist_to_goals(self, config, goals):
-    dists = np.sum((config-goals)**2,axis=1)**(1./2)
+    c = self.transform_to_params(config)
+    c = np.array([c[0],c[1]])
+    g =[]
+    for goal in goals:
+      a = self.transform_to_params(goal)
+      a = [a[0],a[1]]
+      g.append(a)
+    g = np.array(g)
+    dists = np.sum((c-g)**2,axis=1)**(1./2)
     min_ind = np.argmin(dists)
-    return dists[min_ind], goals[min_ind]
+    print "$$$$$$$$$$$$$$$$$ min ind , config , goals, dists",min_ind,"\n",c,"\n", g, "\n", dists
+    return dists[min_ind]#, goals[min_ind]
 
 
   #######################################################
