@@ -264,12 +264,71 @@ class RoboHandler:
   def astar_to_transform(self, goal_transforms):
     
     traj = []
-    ini_state = #What is the robot's current transform
-    
+
+    #Get the X, Y, Theta of the goals
+    goals = []
+    for trans in goal_transforms:
+      goals.append(self.transform_to_params(trans))
+
+    #The set of nodes already evaluated
+    closed_set = set()
+   
+    #The set of tentative nodes to be evaluated
+    open_queue = Queue.PriorityQueue()
+ 
+    #F and g scores (h-scores are calculated on the fly)
+    f_scores = {}
+    g_scores = {}
     
 
+    #Initial state set-up
+    ini_state = self.config_to_priorityqueue_tuple(self.robot.GetTransform())
+    open_queue.put(ini_state)
+    f_scores[ini_state] = ini_state[0]
+
+    while not open_set.empty():
+      #The node having the lowest f value
+      best = open_set.get()
+      cost = best[0]
+      curr = best[1]
+
+      #Test for goal
+      test = self.is_at_goal_basesearch(self.transform_to_params(curr), goals)
+      #Contains true if we are at a goal
+      if test[0]:
+        goal = test[1]
+        print "OHHH YEAH!"
+        # Walk back up the tree here.
+
+        
+      #Remove current from openset (done by get)
+
+      #Add current to closed set:
+      if self.convert_for_dict(curr) not in closed_set:
+          closed_set.add(self.convert_for_dict(curr))
+      
+      #For each neighbor in the closed set
+      for conf in self.transition_config(curr):
+        self.robot.SetTransform(conf)
+        if not self.env.CheckCollision(self.robot) and not self.robot.CheckSelfCollision():
+          
+          #Check the neighbors for g_scores
+          tentative_g_score = g_score[self.convert_for_dict(curr)] + 1
+          if self.convert_for_dict(conf) in closed_set:
+            if tentative_g_score >= g_score[self.convert_for_dict(conf)]:
+              continue
+
+          if self.convert_for_dict(conf) not in open_set or tentative_g_score < g_scores[self.convert_for_dict(conf)]:
+            # Add parent here
+            g_scores[self.convert_for_dict(conf)] = tentative_g_score
+
+            if self.convert_for_dict(conf) not in open_set:
+              open_set.put(self.config_to_priorityqueue_tuple(cost+1, config, goals))
+
+    
     return None
 
+    
 
   #######################################################
   # Check if the config is close enough to goal
@@ -435,7 +494,11 @@ class RoboHandler:
   # transition arrays to it
   #######################################################
   def transition_config(self, config):
-    return None
+    result  = []
+    for trans in self.transition_transforms:
+      result.append(np.dot(config,trans))
+
+    return result
 
 
   #TODO
@@ -444,7 +507,14 @@ class RoboHandler:
   #######################################################
   def config_to_priorityqueue_tuple(self, dist, config, goals):
     # make sure to replace the 0 with your priority queue value!
-    return (0.0, config.tolist())
+    
+    # Heuristic
+    # Minimum number of steps needed to get to at least one goal. Note that we allow for 2cm error
+    distance = self.min_euclid_dist_to_goals(config, goals) - 0.02 
+    
+    min_steps = math.ceil(distance / 0.2);
+    
+    return (min_steps + dist, config.tolist())
 
 
   #######################################################
