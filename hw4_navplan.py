@@ -262,6 +262,12 @@ class RoboHandler:
   # Thus, you should use self.full_transforms when returning!
   #######################################################
   def astar_to_transform(self, goal_transforms):
+    
+    traj = []
+    ini_state = #What is the robot's current transform
+    
+    
+
     return None
 
 
@@ -292,50 +298,135 @@ class RoboHandler:
     self.full_transforms = {}
     
     #Combinations of controls
-    control_options = []
-    for w_1 in range(0, 11):
-      for w_2 in range(0, 11):
-        control_options.append([w_1/10.0, w_2/10.0])
+    #control_options = []
+    #for w_1 in range(0, 11):
+    #  for w_2 in range(0, 11):
+    #    control_options.append([w_1/10.0, w_2/10.0])
   
     #Options to turn in place
-    for w in range(0,11):
-      control_options.append([w/10.0, -w/10.0])
-      control_options.append([-w/10.0, w/10.0])
+    # for w in range(0,11):
+    #  control_options.append([w/10.0, -w/10.0])
+    #  control_options.append([-w/10.0, w/10.0])
 
-    #Come up with list of transforms
+    #Come up with list of transforms via control options
+    control_options = []
     
+    #Add spins in place s.t. target orientation can always be reached in 1 move
+    #Assume all moves are 1 s.
+    control_options.append([0.6544, -0.6544]) #PI/6 - since we want within +/- PI/12 radians
+    control_options.append([-0.6544, 0.6544]) #-PI/6 -  same reason.
+    control_options.append([0.3272, -0.3272]) #PI/12 - just in case (numerical error or something)
+    control_options.append([-0.3272, 0.3272]) #-PI/12
+    control_options.append([1, -1]) #Max spin
+    control_options.append([-1, 1]) #Max spin
+
+    control_options.append([1, 1]) #Max distance possible
+    control_options.append([0.2, 0.2]) #Min distance we care about (4cm)
+    control_options.append([0.4, 0.4]) #Other straight-line distance
+    control_options.append([0.8, 0.8]) # "" "" ""
+
+    control_options.append([0.5, 1]) #Hook
+    control_options.append([1, 0.5]) #Hook
+    control_options.append([-0.5, 1]) #Sharp Hook
+    control_options.append([1, -0.5]) #Sharp Hook
+
+    control_options.append([0.25, 0.5]) #Hook
+    control_options.append([0.5, 0.25]) #Hook
+    control_options.append([-0.25, 0.5]) #Sharp Hook
+    control_options.append([0.5, -0.25]) #Sharp Hook
+
+    
+    for control in control_options:
+      transition_transforms.append(self.calculate_transition_transform(control, 1))
+      # Add smaller transitions later; use dictionary or some shit like that
+
+
+    #Debug this function.
+    # Please work.
+    print "THESE ARE THE TRANSFORMS, BRO: \n"
+    print transforms
+
+  #######################################################
+  # Dan Smith - turns controls given into transform
+  # Assumes local coordinate frame
+  #######################################################
+  def calculate_transition_transform(self, controls, time):
+    x = 0
+    y = 0
+    theta = 0
+    
+    for t in range(0, int(time/TIMESTEP_AMOUNT)):
+      x_dot = (-omega_1/2.0 * WHEEL_RADIUS * sin(theta)) - (omega_1/2.0 * WHEEL_RADIUS * sin(theta))
+      y_dot = (omega_2/2.0 * WHEEL_RADIUS * cos(theta)) - (omega_2/2.0 * WHEEL_RADIUS * cos(theta))
+      theta_dot = omega_1/(2*ROBOT_LENGTH)*WHEEL_RADIUS - omega_2/(2*ROBOT_LENGTH)*WHEEL_RADIUS
+
+      x = x + x_dot*timestep_amount
+      y = y + y_dot*timestep_amount
+      theta = theta + theta_dot*timestep_amount
+    
+    # The change in x y and theta from 0 should give the transform
+    return params_to_transform([x, y, theta])
+   
 
   #TODO
   #######################################################
   # Applies the specified controls to the initial transform
   # returns a list of all intermediate transforms
   #######################################################
-  def controls_to_transforms(self,trans,controls,timestep_amount):
-
+  def controls_to_transforms(self, trans, controls, timestep_amount):
     params = transform_to_params(trans)
     x = params[0]
     y = params[1]
     theta = params[2]
     
-    transforms= []
-    for control in controls:
-      omega_1 = control[0]
-      omega_2 = control[1]
+    transforms = []
 
+    omega_1 = controls[0]
+    omega_2 = controls[1]
+
+    for t in range(0, int(time/timestep_amount)):
+      #Update these formula to 
       x_dot = (-omega_1/2.0 * WHEEL_RADIUS * sin(theta)) - (omega_1/2.0 * WHEEL_RADIUS * sin(theta))
       y_dot = (omega_2/2.0 * WHEEL_RADIUS * cos(theta)) - (omega_2/2.0 * WHEEL_RADIUS * cos(theta))
       theta_dot = omega_1/(2*ROBOT_LENGTH)*WHEEL_RADIUS - omega_2/(2*ROBOT_LENGTH)*WHEEL_RADIUS
+      
+      x = x + x_dot*timestep_amount
+      y = y + y_dot*timestep_amount
+      theta = theta + theta_dot*timestep_amount
 
-      x = timestep_amount*xdot
-      y = timestep_amount*ydot
-      theta = theta + (timestep_amount * thetadot)
+      # While theta changes, we actually only care about the CHANGE in theta, since it is a transform w.r.t. the local frame?
+      transforms.append(params_to_transform([x_dot, y_dot, theta_dot]))
 
-      new_param = [x,y,timestep_amount * thetadot]      
-
-      newTransform = params_to_transform(new_param)
-      transforms.append(newTransform)
-    
     return transforms
+    
+    
+
+#  def controls_to_transforms(self,trans,controls,timestep_amount):
+
+#    params = transform_to_params(trans)
+#    x = params[0]
+#    y = params[1]
+#    theta = params[2]
+    
+#    transforms= []
+#    for control in controls:
+#      omega_1 = control[0]
+#      omega_2 = control[1]
+#
+#      x_dot = (-omega_1/2.0 * WHEEL_RADIUS * sin(theta)) - (omega_1/2.0 * WHEEL_RADIUS * sin(theta))
+#      y_dot = (omega_2/2.0 * WHEEL_RADIUS * cos(theta)) - (omega_2/2.0 * WHEEL_RADIUS * cos(theta))
+#      theta_dot = omega_1/(2*ROBOT_LENGTH)*WHEEL_RADIUS - omega_2/(2*ROBOT_LENGTH)*WHEEL_RADIUS
+#
+#      x = timestep_amount*xdot
+#      y = timestep_amount*ydot
+#      theta = theta + (timestep_amount * thetadot)
+#
+#      new_param = [x,y,timestep_amount * thetadot]      
+#
+#      newTransform = params_to_transform(new_param)
+#      transforms.append(newTransform)
+    
+#    return transforms
     
 
   #TODO
@@ -382,6 +473,7 @@ class RoboHandler:
 
   def transform_to_params(self,transform):
     return np.array([transform[0,3], transform[1,3], self.rot_matrix_to_angle(transform)])
+
   #######################################################
   # minimum distance from config to any goal in goals
   # distance metric: euclidean
