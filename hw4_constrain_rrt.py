@@ -47,13 +47,13 @@ openravepy.misc.InitOpenRAVELogging()
 
 
 #constant for max distance to move any joint in a discrete step
-MAX_MOVE_AMOUNT = 0.1
+MAX_MOVE_AMOUNT = 0.05
 
 #Constant for the maximum +/- distance in z
 ERROR = .01 
 
 #Constant for probability of choosing a random target
-PROB_RAND_TARGET = .9
+PROB_RAND_TARGET = .75
 
 #Constant for distance of current state near goal to determine the termination of the algorithm
 DIST_THRESH = 0.8
@@ -243,6 +243,8 @@ class RoboHandler:
     with self.env:
       self.robot.SetActiveDOFValues(startconfig)
 
+    print "TRAVERSING THE PATH NOW"
+    time.sleep(5) 
     self.robot.GetController().SetPath(traj)
     self.robot.WaitForController(0)
     self.taskmanip.CloseFingers()
@@ -315,33 +317,13 @@ class RoboHandler:
       self.rrt_extend(q_nearest, q_target, goal_tree, goal_parent, lower, upper, z_val_orig)      
       dist_between_trees, idx1, idx2 = self.min_euclid_dist_many_to_many(start_tree, goal_tree)
 
-      print "DISTANCE after goal tree extend: ",dist_between_trees
+      print "DISTANCE after goal tree extend: ", dist_between_trees
 
     config1 = start_tree[idx1]
     config2 = goal_tree[idx2]
        
     return self.backtrace(start_parent, goal_parent, config1, config2)
-  #  q_target, q_nearest, min_dist = self.rrt_choose_target_from_start(start_tree, goal_tree, lower, upper)
-  #  q_target2, q_nearest2, min_dist2 = self.rrt_choose_target_from_start(start_tree, goal_tree, lower, upper)
-  #  print 'Q Target is', q_target
 
-#    print '==============='
-
- #   print 'Q Target2 is', q_target2
-  #  new_config = self.project_z_val_manip(q_target2, z_val_orig, lower, upper)
-   # print 'New config is', new_config
-    #traj = self.points_to_traj(np.array([[ 4.26617914, -0.33212585, -0.3       ,  1.17672238, -2.49433951,
-    #    -1.39568075,  2.97389387],
-    #   [ 2.0687755 ,  0.2760535 , -0.5       , -0.7156698 , -0.02411247,
-    #    -1.53420622, -2.81613962],
-    #   [ 5.38829682, -0.30193089,  2.7       , -0.7156698 , -0.23760322,
-    #    -1.54818631, -2.70997013],
-    #   [ 5.03751866, -0.25019943,  2.6       , -0.7156698 ,  0.17062029,
-    #    -1.54134808, -2.91343582]]))
-    
-    #print 'transform', self.manip.GetEndEffectorTransform()
-    #print 'z_val_orig', z_val_orig
-    #return traj
 
 
   #TODO
@@ -353,29 +335,52 @@ class RoboHandler:
     print 'passed c is' , c
     
     #Try to set the robot to the desired configuration
-
-
     q_current = c
-    GRADIENT_THRESH = .05
+    transform = self.manip.GetEndEffectorTransform()
+    z_current = transform[2,3]
+    GRADIENT_THRESH = .001
     gradient = [1,1,1,1,1,1,1]
-    while(np.linalg.norm(gradient) > GRADIENT_THRESH):
-      delta = .05
+    delta = .5
+    #while((np.linalg.norm(gradient) > GRADIENT_THRESH) and not (z_current < z_val+ERROR and z_current > z_val-ERROR)):
 
+    #Perform gradient descent until the z value is +/- 1cm of the desired z plane
+    while(not (z_current < z_val+ERROR and z_current > z_val-ERROR) or (np.linalg.norm(gradient) > GRADIENT_THRESH)):
+      
+      #Set the robot's DOFs to the current gradient descent configuration
       with self.env:
-        self.robot.SetActiveDOFValues(c) # Sets the robot's DOFs to the passed configuration to test
-        reach_limit = self.robot.CheckSelfCollision() or self.env.CheckCollision(self.robot) or self.limitcheck(c, lower, upper) #This needs to be under the self.env block!
-      print 'Reach limit is', reach_limit
-      #If collisions or joint limits are reached, exit and return none
+        self.robot.SetActiveDOFValues(q_current) 
+        reach_limit = self.robot.CheckSelfCollision() or self.env.CheckCollision(self.robot) or self.limitcheck(c, lower, upper) #We do an error check, but the extend function will take care of seeing if the result is actually good. 
+
+      #Informs whether the limit is reached or not, but as above, the extend function has the final say because some
+      #Steps along the way to the projection might still be good
       if reach_limit:
-        return None # Terminate the function of a collision occurs.
+        print 'we reached limit when projecting'
+      else:
+        print 'did not reach limit'
+
+      #Get the transform
       transform = self.manip.GetEndEffectorTransform()
+      print 'transform', transform
+      
+      #Pull the z value out of the transform
       z_current = transform[2,3]
+      print 'z_current', z_current
+      
+      #Use the last row of the spatial Jacobian to run the gradient descent
+      #Only the z axis is constrained, but x, y and rotation are allowed to be free
       j_spatial = self.manip.CalculateJacobian()
-      gradient = 2*(z_current - z_val)*j_spatial[-1]
+      j_spatial_last = j_spatial[-1]
+      print 'j_spatial_last',j_spatial_last
+      
+      gradient = 2*(z_current - z_val)*j_spatial_last
+      print 'gradient', gradient
+      print 'linalg', np.linalg.norm(gradient)
       q_current = q_current - gradient*delta
+      print 'q current', q_current
     
     
-    print 'new config is', q_current
+    print '===========new config is===========', q_current
+    print '===========new transform is========', transform
     return q_current
 
   #######################################################
@@ -435,15 +440,16 @@ class RoboHandler:
   def rrt_extend(self, q_nearest, q_target, tree, parent, lower, upper, z_val):
 
     direction_vector = q_target - q_nearest # Obtain the direction of the direct line from initial to goal state
-    dist, index = self.min_euclid_dist_one_to_many(q_nearest, [q_target]) # The distance between the initial and final state
+    #dist, index = self.min_euclid_dist_one_to_many(q_nearest, [q_target]) # The distance between the initial and final state
     #steps = int(dist / MAX_MOVE_AMOUNT) # Determine how many steps it will take to reach the final state
 
     #Find the projection of q_target
     q_target_proj = self.project_z_val_manip(q_target, z_val, lower, upper)
-    
+    print 'q target projection is:', q_target_proj
     #Find the projection of q_nearest
     q_nearest_proj = self.project_z_val_manip(q_nearest, z_val, lower, upper)
     #Try to extend all the way to the target, terminate at step if not possible
+    print 'q nearest projection is:', q_nearest_proj
     
     ##if q_nearest_proj or q_target_proj is None:
     ##  return
@@ -482,14 +488,17 @@ class RoboHandler:
         if self.convert_for_dict(node) == self.convert_for_dict(q_add):
           isPresent = True
       if not isPresent:
-        #print "================ADDED AN ELEMENT****************************************"
         tree.append(q_add) # Add the first element to the tree
         parent[self.convert_for_dict(q_add)] = q_parent # Update the parent dictionary
 
 	  #Recalculate the direction vector
       direction_vector = q_target - q_add
-      q_parent = q_add
+      
+      #Recalculate the distance between the current node and the q_target projection
+      dist, index = self.min_euclid_dist_one_to_many(q_add, [q_target_proj])
 
+      #For the next node, set the parent to the current node
+      q_parent = q_add
     return
 
 
@@ -505,16 +514,16 @@ class RoboHandler:
      path2 = []
      path2.append(config2)
 
-     print "START PARENT=========================================", start_parent
-     print "GOAL_PARENT---------------------------------------", goal_parent
+     #print "START PARENT=========================================", start_parent
+     #print "GOAL_PARENT---------------------------------------", goal_parent
 
      while not path1[-1] is None:
-       print "BUILDING PATH 1", len(path1)
+       #print "BUILDING PATH 1", len(path1)
        node = start_parent[self.convert_for_dict(path1[-1])]
        path1.append(node)
 
      while not path2[-1] is None:
-       print "BUILDING PATH 2", len(path2)
+       #print "BUILDING PATH 2", len(path2)
        node = goal_parent[self.convert_for_dict(path2[-1])]
        path2.append(node)
 
@@ -540,6 +549,9 @@ class RoboHandler:
     #return np.array(item)/100.
     return np.array(item)
 
+  #######################################################
+  # Trajectory building function
+  #######################################################
   def points_to_traj(self, points):
     traj = openravepy.RaveCreateTrajectory(self.env,'')
     traj.Init(self.robot.GetActiveConfigurationSpecification())
