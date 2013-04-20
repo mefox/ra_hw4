@@ -53,6 +53,7 @@ MAX_MOVE_AMOUNT = 0.1
 WHEEL_RADIUS = 0.20
 ROBOT_LENGTH = 0.25
 TIMESTEP_AMOUNT = 0.02
+EPSILON = 0.3
 
 
 class RoboHandler:
@@ -68,6 +69,7 @@ class RoboHandler:
   # the usual initialization for openrave
   #######################################################
   def openrave_init(self):
+    print "PERNRAVE INIT"
     self.env = openravepy.Environment()
     self.env.SetViewer('qtcoin')
     self.env.GetViewer().SetName('HW4 Viewer')
@@ -88,6 +90,7 @@ class RoboHandler:
   # problem specific initialization
   #######################################################
   def problem_init(self):
+    print "Problem INIT"
     self.target_kinbody = self.env.GetKinBody("target")
 
     # create a grasping module
@@ -270,65 +273,127 @@ class RoboHandler:
     for trans in goal_transforms:
       goals.append(self.transform_to_params(trans))
 
+    #Initialization
+    open_set = set()
+
     #The set of nodes already evaluated
     closed_set = set()
    
-    #The set of tentative nodes to be evaluated
-    open_queue = Queue.PriorityQueue()
- 
     #F and g scores (h-scores are calculated on the fly)
-    f_scores = {}
-    g_scores = {}
-    
+    f_scores = dict()
+    g_scores = dict()
+    parent_dict = dict()
 
     #Initial state set-up
-    ini_state = self.config_to_priorityqueue_tuple(0, self.robot.GetTransform(), goal_transforms)
-    open_queue.put(ini_state)
-    g_scores[self.convert_for_dict(ini_state)] = ini_state[0]
+    ini_state = self.transform_to_params(self.robot.GetTransform())
+    
+    print ini_state
 
-    while not open_set.empty():
+    g_scores[self.convert_for_dict_withround(ini_state)] = 0
+    f_scores[self.convert_for_dict_withround(ini_state)] = EPSILON*self.get_h_score_from_params(ini_state, goals)
+
+    open_set.add(self.convert_for_dict_withround(ini_state))
+
+    #While open set not empty
+    while open_set:
       #The node having the lowest f value
-      best = open_set.get()
-      cost = best[0]
-      curr = best[1]
-
-      #Test for goal
-      test = self.is_at_goal_basesearch(self.transform_to_params(curr), goals)
-      #Contains true if we are at a goal
-      if test[0]:
-        goal = test[1]
-        print "OHHH YEAH!"
-        # Walk back up the tree here.
-
-        
-      #Remove current from openset (done by get)
-
-      #Add current to closed set:
-      if self.convert_for_dict(curr) not in closed_set:
-          closed_set.add(self.convert_for_dict(curr))
+      lowest_score = -1
+      best_node = ()
+      for node in open_set:
+        if (lowest_score == -1) or (f_scores[node] < lowest_score):
+          best_node = node
+          lowest_score = f_scores[node]
+      curr_state = best_node
       
-      #For each neighbor in the closed set
-      for conf in self.transition_config(curr):
+      print "Now checking ", curr_state
+
+      #Contains true if we are at a goal
+      if self.is_at_goal_basesearch(self.convert_from_dictkey_withround(curr_state), goals):
+        print "OHHH YEAH!"
+        print "We found a trajectory." 
+         
+        # Walk back up the tree here.
+        return self.get_path(parent_dict, curr_state)
+        
+      #Remove current from openset
+      open_set.remove(curr_state)
+      closed_set.add(curr_state)
+
+      
+      #
+      for conf in self.transition_config(self.params_to_transform(self.convert_from_dictkey_withround(curr_state))):
+
+        print "\t Checking next neighbor... ", self.transform_to_params(conf)
+
         self.robot.SetTransform(conf)
+
         if not self.env.CheckCollision(self.robot) and not self.robot.CheckSelfCollision():
+          print "\t\t No collision. Good."
+          next_state = self.convert_for_dict_withround(self.transform_to_params(conf))
+          tentative_g_score = g_scores[curr_state] + 1
+          print "\t\t Tentative g score of ", tentative_g_score
           
-          #Check the neighbors for g_scores
-          tentative_g_score = g_score[self.convert_for_dict(curr)] + 1
-          if self.convert_for_dict(conf) in closed_set:
-            if tentative_g_score >= g_score[self.convert_for_dict(conf)]:
+          if next_state in closed_set:
+            if tentative_g_score >= g_scores[next_state]:
+              print "\t\t Not updating old state. Tentative g_score is too high."
               continue
 
-          if self.convert_for_dict(conf) not in open_set or tentative_g_score < g_scores[self.convert_for_dict(conf)]:
-            # Add parent here
-            g_scores[self.convert_for_dict(conf)] = tentative_g_score
+          if next_state not in open_set or tentative_g_score < g_scores[next_state]:
+            parent_dict[next_state] = curr_state
+            g_scores[next_state] = tentative_g_score
+            f_scores[next_state] = g_scores[next_state] + EPSILON*self.get_h_score_from_params(self.convert_from_dictkey_withround(next_state), goals)
+            if next_state not in open_set:
+              open_set.add(next_state)
+              print "\t\t Adding new state. "
+          else:
+            print "\t\t Not adding new state. Already in open set or tentative g score is too high."
+            
 
-            if self.convert_for_dict(conf) not in open_set:
-              open_set.put(self.config_to_priorityqueue_tuple(cost+1, config, goals))
+    print "Failure in finding trajectory. :( Shit. "
+    return Failure
 
+  #Get the path
+  def get_path(self, parents, last):
+    traj = []
+    traj.append(last)
+
+    while parents.has_key(last):
+      last = parents[last]
+      traj.append(last)
+
+    traj.reverse()
     
-    return None
-
+    for i in range(0, len(traj)):
+      traj[i] = self.params_to_transform(self.convert_from_dictkey_withround(traj[i]))
     
+    return traj
+
+
+  def get_h_score_from_params(self, state, goals):
+    lengths = []
+    for goal in goals:
+      sum = 0
+      sum += math.pow(state[0] - goal[0], 2.0)
+      sum += math.pow(state[1] - goal[1], 2.0)
+      sum = math.sqrt(sum)
+
+      sum += 0.01 * np.abs(state[2] - goal[2])
+
+      lengths.append(sum)
+      
+    shortest = lengths[0]
+    shortest_index = 0
+    
+    for i in range(1, len(lengths)):
+      if lengths[i] < shortest:
+        shortest = lengths[i]
+        shortest_index = i
+
+    distance = shortest - 0.02 
+    min_steps = math.ceil(distance / 0.2);
+
+    print "\t\t\tH score of ", min_steps
+    return min_steps
 
   #######################################################
   # Check if the config is close enough to goal
@@ -337,6 +402,13 @@ class RoboHandler:
   #######################################################
   def is_at_goal_basesearch(self, config, goals, dist_thresh = 0.02, theta_thresh = np.pi/12):
     for goal in goals:
+      print "Config x: ", config[0], " Goal x: ", goal[0]
+      print "Config y: ", config[1], " Goal y: ", goal[1]
+      print "Config t: ", config[2], " Goal t: ", goal[2]
+
+      print "Dist to goal: ", np.linalg.norm(config[0:2]-goal[0:2])
+      print "Dist to angl: ", np.abs(config[2] - goal[2])
+
       if (np.linalg.norm(config[0:2]-goal[0:2]) <= dist_thresh and np.abs(config[2] - goal[2]) <= theta_thresh):
         return True
     return False
@@ -372,32 +444,35 @@ class RoboHandler:
     
     #Add spins in place s.t. target orientation can always be reached in 1 move
     #Assume all moves are 1 s.
-    control_options.append([0.6544, -0.6544]) #PI/6 - since we want within +/- PI/12 radians
-    control_options.append([-0.6544, 0.6544]) #-PI/6 -  same reason.
-    control_options.append([0.3272, -0.3272]) #PI/12 - just in case (numerical error or something)
-    control_options.append([-0.3272, 0.3272]) #-PI/12
+   # control_options.append([0.6544, -0.6544]) #PI/6 - since we want within +/- PI/12 radians
+   # control_options.append([-0.6544, 0.6544]) #-PI/6 -  same reason.
+    #control_options.append([0.3272, -0.3272]) #PI/12 - just in case (numerical error or something)
+    #control_options.append([-0.3272, 0.3272]) #-PI/12
     control_options.append([1, -1]) #Max spin
     control_options.append([-1, 1]) #Max spin
 
     control_options.append([1, 1]) #Max distance possible
     control_options.append([0.2, 0.2]) #Min distance we care about (4cm)
-    control_options.append([0.4, 0.4]) #Other straight-line distance
-    control_options.append([0.8, 0.8]) # "" "" ""
+   # control_options.append([0.4, 0.4]) #Other straight-line distance
+   # control_options.append([0.8, 0.8]) # "" "" ""
 
-    control_options.append([0.5, 1]) #Hook
-    control_options.append([1, 0.5]) #Hook
-    control_options.append([-0.5, 1]) #Sharp Hook
-    control_options.append([1, -0.5]) #Sharp Hook
+   # control_options.append([0.5, 1]) #Hook
+   # control_options.append([1, 0.5]) #Hook
+   # control_options.append([-0.5, 1]) #Sharp Hook
+   # control_options.append([1, -0.5]) #Sharp Hook
 
-    control_options.append([0.25, 0.5]) #Hook
-    control_options.append([0.5, 0.25]) #Hook
-    control_options.append([-0.25, 0.5]) #Sharp Hook
-    control_options.append([0.5, -0.25]) #Sharp Hook
+   # control_options.append([0.25, 0.5]) #Hook
+   # control_options.append([0.5, 0.25]) #Hook
+   # control_options.append([-0.25, 0.5]) #Sharp Hook
+   # control_options.append([0.5, -0.25]) #Sharp Hook
 
     
     for control in control_options:
       self.transition_transforms.append(self.calculate_transition_transform(control, 1))
       # Add smaller transitions later; use dictionary or some shit like that
+
+
+    # print self.transition_transforms
 
 
     #Debug this function.
@@ -416,10 +491,13 @@ class RoboHandler:
     
     omega_1 = controls[0]
     omega_2 = controls[1]
+
     for t in range(0, int(time/TIMESTEP_AMOUNT)):
-      x_dot = (-omega_1/2.0 * WHEEL_RADIUS * np.sin(theta)) - (omega_1/2.0 * WHEEL_RADIUS * np.sin(theta))
-      y_dot = (omega_2/2.0 * WHEEL_RADIUS * np.cos(theta)) - (omega_2/2.0 * WHEEL_RADIUS * np.cos(theta))
       theta_dot = omega_1/(2*ROBOT_LENGTH)*WHEEL_RADIUS - omega_2/(2*ROBOT_LENGTH)*WHEEL_RADIUS
+
+      x_dot = (omega_1/2.0 * WHEEL_RADIUS * np.sin(theta)) + (omega_1/2.0 * WHEEL_RADIUS * np.sin(theta))
+      y_dot = (omega_2/2.0 * WHEEL_RADIUS * np.cos(theta)) + (omega_2/2.0 * WHEEL_RADIUS * np.cos(theta))
+
 
       x = x + x_dot*TIMESTEP_AMOUNT
       y = y + y_dot*TIMESTEP_AMOUNT
@@ -503,9 +581,11 @@ class RoboHandler:
     return result
 
 
+
   #TODO
   #######################################################
   # Implement a heuristic for base navigation
+  # Is any of this right?
   #######################################################
   def config_to_priorityqueue_tuple(self, dist, config, goals):
     # make sure to replace the 0 with your priority queue value!
@@ -659,6 +739,7 @@ def run_func_with_timeout(func, args = (), timeout=1000000000):
   return result
 
 if __name__ == '__main__':
+  print " IN MAIN"
   robo = RoboHandler()
   #time.sleep(10000) #to keep the openrave window open
   
