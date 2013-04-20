@@ -157,6 +157,8 @@ class RoboHandler:
     # get the trajectory!
     base_transforms = self.astar_to_transform(goal_trans)
 
+    print base_transforms
+
     with self.env:
       self.robot.SetTransform(self.start_trans)
 
@@ -283,6 +285,7 @@ class RoboHandler:
     f_scores = dict()
     g_scores = dict()
     parent_dict = dict()
+    transition_dict = dict()
 
     #Initial state set-up
     ini_state = self.transform_to_params(self.robot.GetTransform())
@@ -311,18 +314,24 @@ class RoboHandler:
       if self.is_at_goal_basesearch(self.convert_from_dictkey_withround(curr_state), goals):
         print "OHHH YEAH!"
         print "We found a trajectory." 
-         
+        
+        time.sleep(3)
+        
         # Walk back up the tree here.
-        return self.get_path(parent_dict, curr_state)
+        return self.get_path(parent_dict, transition_dict, self.convert_for_dict_withround(ini_state), curr_state)
         
       #Remove current from openset
       open_set.remove(curr_state)
       closed_set.add(curr_state)
 
-      
-      #
-      for conf in self.transition_config(self.params_to_transform(self.convert_from_dictkey_withround(curr_state))):
+#      for conf in self.transition_config(self.params_to_transform(self.convert_from_dictkey_withround(curr_state))):
 
+      neighbors = self.transition_config(self.params_to_transform(self.convert_from_dictkey_withround(curr_state)))
+      
+      for i in range(0,len(neighbors)):
+        conf = neighbors[i]
+        tran = self.transition_transforms[i]
+  
         print "\t Checking next neighbor... ", self.transform_to_params(conf)
 
         self.robot.SetTransform(conf)
@@ -340,6 +349,8 @@ class RoboHandler:
 
           if next_state not in open_set or tentative_g_score < g_scores[next_state]:
             parent_dict[next_state] = curr_state
+            transition_dict[curr_state, next_state] = self.full_transforms[self.convert_for_dict_withround(self.transform_to_params(tran))]
+            
             g_scores[next_state] = tentative_g_score
             f_scores[next_state] = g_scores[next_state] + EPSILON*self.get_h_score_from_params(self.convert_from_dictkey_withround(next_state), goals)
             if next_state not in open_set:
@@ -353,19 +364,17 @@ class RoboHandler:
     return Failure
 
   #Get the path
-  def get_path(self, parents, last):
+  def get_path(self, parents, transitions, initial, last):
+    curr_state = last
+    prev_state = parents[last]
     traj = []
-    traj.append(last)
 
-    while parents.has_key(last):
-      last = parents[last]
-      traj.append(last)
-
+    while parents.has_key(curr_state):
+      traj.append(self.params_to_transform(self.convert_from_dictkey_withround(curr_state)))
+      curr_state = parents[curr_state]
+    
     traj.reverse()
-    
-    for i in range(0, len(traj)):
-      traj[i] = self.params_to_transform(self.convert_from_dictkey_withround(traj[i]))
-    
+
     return traj
 
 
@@ -444,42 +453,35 @@ class RoboHandler:
     
     #Add spins in place s.t. target orientation can always be reached in 1 move
     #Assume all moves are 1 s.
-   # control_options.append([0.6544, -0.6544]) #PI/6 - since we want within +/- PI/12 radians
-   # control_options.append([-0.6544, 0.6544]) #-PI/6 -  same reason.
+    control_options.append([0.6544, -0.6544]) #PI/6 - since we want within +/- PI/12 radians
+    control_options.append([-0.6544, 0.6544]) #-PI/6 -  same reason.
     #control_options.append([0.3272, -0.3272]) #PI/12 - just in case (numerical error or something)
     #control_options.append([-0.3272, 0.3272]) #-PI/12
-    control_options.append([1, -1]) #Max spin
-    control_options.append([-1, 1]) #Max spin
+    #control_options.append([1, -1]) #Max spin
+    #control_options.append([-1, 1]) #Max spin
 
     control_options.append([1, 1]) #Max distance possible
     control_options.append([0.2, 0.2]) #Min distance we care about (4cm)
-   # control_options.append([0.4, 0.4]) #Other straight-line distance
-   # control_options.append([0.8, 0.8]) # "" "" ""
+    #control_options.append([0.4, 0.4]) #Other straight-line distance
+    #control_options.append([0.8, 0.8]) # "" "" ""
 
-   # control_options.append([0.5, 1]) #Hook
-   # control_options.append([1, 0.5]) #Hook
-   # control_options.append([-0.5, 1]) #Sharp Hook
-   # control_options.append([1, -0.5]) #Sharp Hook
+    #control_options.append([0.5, 1]) #Hook
+    #control_options.append([1, 0.5]) #Hook
+    #control_options.append([-0.5, 1]) #Sharp Hook
+    #control_options.append([1, -0.5]) #Sharp Hook
 
-   # control_options.append([0.25, 0.5]) #Hook
-   # control_options.append([0.5, 0.25]) #Hook
-   # control_options.append([-0.25, 0.5]) #Sharp Hook
-   # control_options.append([0.5, -0.25]) #Sharp Hook
+    #control_options.append([0.25, 0.5]) #Hook
+    #control_options.append([0.5, 0.25]) #Hook
+    #control_options.append([-0.25, 0.5]) #Sharp Hook
+    #control_options.append([0.5, -0.25]) #Sharp Hook
 
     
     for control in control_options:
-      self.transition_transforms.append(self.calculate_transition_transform(control, 1))
-      # Add smaller transitions later; use dictionary or some shit like that
+      trans = self.calculate_transition_transform(control, 1)
+      self.transition_transforms.append(trans[0])
+      self.full_transforms[self.convert_for_dict_withround(self.transform_to_params(trans[0]))] = trans[1]
 
-
-    # print self.transition_transforms
-
-
-    #Debug this function.
-    # Please work.
-    #print "THESE ARE THE TRANSFORMS, BRO: \n"
-    #print self.transition_transforms
-
+     
   #######################################################
   # Dan Smith - turns controls given into transform
   # Assumes local coordinate frame
@@ -492,19 +494,22 @@ class RoboHandler:
     omega_1 = controls[0]
     omega_2 = controls[1]
 
+    fulls = []
+
     for t in range(0, int(time/TIMESTEP_AMOUNT)):
       theta_dot = omega_1/(2*ROBOT_LENGTH)*WHEEL_RADIUS - omega_2/(2*ROBOT_LENGTH)*WHEEL_RADIUS
 
       x_dot = (omega_1/2.0 * WHEEL_RADIUS * np.sin(theta)) + (omega_1/2.0 * WHEEL_RADIUS * np.sin(theta))
       y_dot = (omega_2/2.0 * WHEEL_RADIUS * np.cos(theta)) + (omega_2/2.0 * WHEEL_RADIUS * np.cos(theta))
 
+      fulls.append(self.params_to_transform([x_dot, y_dot, theta_dot]))
 
       x = x + x_dot*TIMESTEP_AMOUNT
       y = y + y_dot*TIMESTEP_AMOUNT
       theta = theta + theta_dot*TIMESTEP_AMOUNT
     
     # The change in x y and theta from 0 should give the transform
-    return self.params_to_transform([x, y, theta])
+    return self.params_to_transform([x, y, theta]), fulls
    
 
   #TODO
@@ -512,31 +517,31 @@ class RoboHandler:
   # Applies the specified controls to the initial transform
   # returns a list of all intermediate transforms
   #######################################################
-  def controls_to_transforms(self, trans, controls, timestep_amount):
-    params = transform_to_params(trans)
-    x = params[0]
-    y = params[1]
-    theta = params[2]
-    
-    transforms = []
+  #def controls_to_transforms(self, trans, controls, timestep_amount):
+  #  params = transform_to_params(trans)
+  #  x = params[0]
+  #  y = params[1]
+  #  theta = params[2]
+  #  
+  #  transforms = []
 
-    omega_1 = controls[0]
-    omega_2 = controls[1]
+ #   omega_1 = controls[0]
+ #  omega_2 = controls[1]
 
-    for t in range(0, int(time/timestep_amount)):
-      #Update these formula to 
-      x_dot = (-omega_1/2.0 * WHEEL_RADIUS * sin(theta)) - (omega_1/2.0 * WHEEL_RADIUS * sin(theta))
-      y_dot = (omega_2/2.0 * WHEEL_RADIUS * cos(theta)) - (omega_2/2.0 * WHEEL_RADIUS * cos(theta))
-      theta_dot = omega_1/(2*ROBOT_LENGTH)*WHEEL_RADIUS - omega_2/(2*ROBOT_LENGTH)*WHEEL_RADIUS
+  #  for t in range(0, int(time/timestep_amount)):
+   #   #Update these formula to 
+   #   x_dot = (-omega_1/2.0 * WHEEL_RADIUS * sin(theta)) - (omega_1/2.0 * WHEEL_RADIUS * sin(theta))
+    #  y_dot = (omega_2/2.0 * WHEEL_RADIUS * cos(theta)) - (omega_2/2.0 * WHEEL_RADIUS * cos(theta))
+     # theta_dot = omega_1/(2*ROBOT_LENGTH)*WHEEL_RADIUS - omega_2/(2*ROBOT_LENGTH)*WHEEL_RADIUS
       
-      x = x + x_dot*timestep_amount
-      y = y + y_dot*timestep_amount
-      theta = theta + theta_dot*timestep_amount
+     # x = x + x_dot*timestep_amount
+     # y = y + y_dot*timestep_amount
+     # theta = theta + theta_dot*timestep_amount
 
       # While theta changes, we actually only care about the CHANGE in theta, since it is a transform w.r.t. the local frame?
-      transforms.append(params_to_transform([x_dot, y_dot, theta_dot]))
+     # transforms.append(params_to_transform([x, y, theta]))
 
-    return transforms
+   # return transforms
     
     
 
@@ -575,10 +580,25 @@ class RoboHandler:
   #######################################################
   def transition_config(self, config):
     result  = []
+
     for trans in self.transition_transforms:
       result.append(np.dot(config,trans))
-
+      
     return result
+
+  #######################################################
+  # Take the current configuration and apply each of your
+  # transition arrays to it
+  #######################################################
+  def full_transform_config(self, config, transforms):
+    result  = []
+
+    for trans in transforms:
+      result.append(np.dot(config,trans))
+      
+    return result
+
+
 
 
 
@@ -680,8 +700,7 @@ class RoboHandler:
     for trans in transforms:
       with self.env:
         self.robot.SetTransform(trans)
-      time.sleep(0.01)
-
+      time.sleep(1)
 
   #######################################################
   # minimum distance from config (singular) to any other config in o_configs
