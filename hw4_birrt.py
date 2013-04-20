@@ -56,19 +56,17 @@ openravepy.misc.InitOpenRAVELogging()
 MAX_MOVE_AMOUNT = 0.05
 
 #Constant for probability of choosing a random target
-PROB_RAND_TARGET = 0.75
+PROB_RAND_TARGET = 0.50
 
 #Constant for distance of current state near goal to determine the termination of the algorithm
-DIST_THRESH = 0.5
+DIST_THRESH = 0.05
 
 class RoboHandler:
   def __init__(self):
     self.openrave_init()
     self.problem_init()
 
-    #self.run_problem_birrt()
-
-
+    self.run_problem_birrt()
 
 
   #######################################################
@@ -279,18 +277,12 @@ class RoboHandler:
     start_parent = {}
     start_parent[self.convert_for_dict(q_initial)] = None # Dictionary to store the start_parents
 
-
-    #trees = np.array([]) #np array to store goal trees
-    #parents = np.array() #np array to store goal parent dictionaries
-
     #Now take all the goals and make a tree to add to the array of goals and make a dictionary of child (key) parents (value) to add to the array of parents
     goal_tree=[]
     goal_parent={}
     for goal in goals:    
       goal_parent[self.convert_for_dict(goal)] = None
       goal_tree.append(goal)
-    #for keys in parent:
-    #  print 'The first key value pairs are', keys, parent[keys]
 
     #Find the lower and upper limits of the joint angles
     lower, upper = self.robot.GetActiveDOFLimits() # Get the joint limits
@@ -479,7 +471,9 @@ class RoboHandler:
     return np.array(item)
     #return np.array(np.around(item,decimals = 3))
 
-
+  #######################################################
+  # Trajectory building function
+  #######################################################
   def points_to_traj(self, points):
     traj = openravepy.RaveCreateTrajectory(self.env,'')
     traj.Init(self.robot.GetActiveConfigurationSpecification())
@@ -487,7 +481,6 @@ class RoboHandler:
       traj.Insert(idx,point)
     openravepy.planningutils.RetimeActiveDOFTrajectory(traj,self.robot,hastimestamps=False,maxvelmult=1,maxaccelmult=1,plannername='ParabolicTrajectoryRetimer')
     return traj
-
 
 
 
@@ -532,7 +525,5 @@ class RoboHandler:
 
 if __name__ == '__main__':
   robo = RoboHandler()
-  print "calling "
-  robo.run_problem_birrt()
   time.sleep(20) #to keep the openrave window open
   

@@ -53,10 +53,11 @@ MAX_MOVE_AMOUNT = 0.05
 ERROR = .01 
 
 #Constant for probability of choosing a random target
-PROB_RAND_TARGET = .75
+PROB_RAND_TARGET = .60
 
 #Constant for distance of current state near goal to determine the termination of the algorithm
-DIST_THRESH = 0.8
+DIST_THRESH1 = 0.8
+DIST_THRESH2 = 0.8
 
 class RoboHandler:
   def __init__(self):
@@ -270,18 +271,14 @@ class RoboHandler:
     print "INITIAL POSITION", q_initial
     q_initial_tuple = self.convert_for_dict(q_initial) # This is the tuple for initial state
     q_nearest = q_initial # This is the initialization for nearest point in np array format
-    thresh = DIST_THRESH # The threshold to determine if the goal is reached or not
+    thresh = DIST_THRESH1 # The threshold to determine if the goal is reached or not
     
     #Initialize the tree for the start node
     start_tree = [q_initial]
 
-    #start_tree.append(q_initial_tuple)
     #Initialize the parent dictionary for the start node
     start_parent = {}
     start_parent[q_initial_tuple] = None # Dictionary to store the start_parents
-
-    #trees = np.array([]) #np array to store goal trees
-    #parents = np.array() #np array to store goal parent dictionaries
 
     #Now take all the goals and make a tree to add to the array of goals and make a dictionary of child (key) parents (value) to add to the array of parents
     goal_tree=[]
@@ -289,8 +286,6 @@ class RoboHandler:
     for goal in goals:    
       goal_parent[self.convert_for_dict(goal)] = None
       goal_tree.append(goal)
-    #for keys in parent:
-    #  print 'The first key value pairs are', keys, parent[keys]
 
     #Find the lower and upper limits of the joint angles
     lower, upper = self.robot.GetActiveDOFLimits() # Get the joint limits
@@ -299,26 +294,30 @@ class RoboHandler:
     tree_not_connected = True
     print 'Completed initialization, lets make some trees!'
     dist_between_trees, idx1, idx2 = self.min_euclid_dist_many_to_many(start_tree, goal_tree)
-    while(dist_between_trees>DIST_THRESH): # Keep checking if the tree has not already reached a nearest goal   
+    while(dist_between_trees>thresh): # Keep checking if the tree has not already reached a nearest goal   
       #print "DISTANCE Initial: ",dist_between_trees
       #First grow start tree
       q_target, q_nearest, min_dist = self.rrt_choose_target_from_start(start_tree, goal_tree, lower, upper) 
       #print "FOR START TREE - Q-TARGET, Q-NEAREST",q_target, q_nearest
       self.rrt_extend(q_nearest, q_target, start_tree, start_parent, lower, upper, z_val_orig)
-
+      #print 'returned 1'
       dist_between_trees, idx1, idx2 = self.min_euclid_dist_many_to_many(start_tree, goal_tree)
       print "DISTANCE after start_tree extend: ",dist_between_trees      
-      if (dist_between_trees < DIST_THRESH):
+      if (dist_between_trees < thresh):
          break
       
-      q_target, q_nearest, min_dist = self.rrt_choose_target_from_goal(start_tree,goal_tree, lower, upper) # Function returns a randomly chosen configuration or a nearest goal to the tree
-      #print "FOR GOAL TREE - Q-TARGET, Q-NEAREST",q_target, q_nearest
-      # Incorrect - needs to use goal tree, not start tree- self.rrt_extend(q_nearest, q_target, start_tree, goal_parent, lower, upper)
-      self.rrt_extend(q_nearest, q_target, goal_tree, goal_parent, lower, upper, z_val_orig)      
-      dist_between_trees, idx1, idx2 = self.min_euclid_dist_many_to_many(start_tree, goal_tree)
+      #Calculate the target for the goal tree
+      q_target, q_nearest, min_dist = self.rrt_choose_target_from_goal(start_tree,goal_tree, lower, upper) 
+      
+      #Extend the goal tree along the manifold until collision or limit error
+      self.rrt_extend(q_nearest, q_target, goal_tree, goal_parent, lower, upper, z_val_orig) 
+      #print 'returned 2'
+      #Recalculate distance between trees so loop will exit
+      dist_between_trees, idx1, idx2 = self.min_euclid_dist_many_to_many(start_tree, goal_tree) 
 
       print "DISTANCE after goal tree extend: ", dist_between_trees
 
+    #Set the traceback nodes as the nodes that are closest to one another on each tree
     config1 = start_tree[idx1]
     config2 = goal_tree[idx2]
        
@@ -331,75 +330,78 @@ class RoboHandler:
   # projects onto the constraint of that z value
   #######################################################
   def project_z_val_manip(self, c, z_val, lower, upper):
-    
-    print 'passed c is' , c
-    
-    #Try to set the robot to the desired configuration
-    q_current = c
-    transform = self.manip.GetEndEffectorTransform()
-    z_current = transform[2,3]
-    GRADIENT_THRESH = .001
-    gradient = [1,1,1,1,1,1,1]
-    delta = .5
-    #while((np.linalg.norm(gradient) > GRADIENT_THRESH) and not (z_current < z_val+ERROR and z_current > z_val-ERROR)):
+    #Initialize variables and constants before running gradient descent 
+    q_current = c #initialize q_current
+    transform = self.manip.GetEndEffectorTransform() #initialize the transform
+    z_current = transform[2,3] #Initialize z_current
+    gradient = [1,1,1,1,1,1,1] #Initialize the gradient so that the while loop is entered
 
+    GRADIENT_THRESH = .001 #Set the gradient threshold parameter to make the z transform good
+    DELTA = .5 #Initialize the delta value
+
+    count = 0
     #Perform gradient descent until the z value is +/- 1cm of the desired z plane
-    while(not (z_current < z_val+ERROR and z_current > z_val-ERROR) or (np.linalg.norm(gradient) > GRADIENT_THRESH)):
-      
-      #Set the robot's DOFs to the current gradient descent configuration
+    while((not (z_current < z_val+ERROR and z_current > z_val-ERROR) or (np.linalg.norm(gradient) > GRADIENT_THRESH)) and count < 9):
+      count = count + 1 #make sure we don't get stuck here
+      #print 'count', count
+      #Try to set the robot's DOFs to the current gradient descent configuration
       with self.env:
         self.robot.SetActiveDOFValues(q_current) 
         reach_limit = self.robot.CheckSelfCollision() or self.env.CheckCollision(self.robot) or self.limitcheck(c, lower, upper) #We do an error check, but the extend function will take care of seeing if the result is actually good. 
 
-      #Informs whether the limit is reached or not, but as above, the extend function has the final say because some
-      #Steps along the way to the projection might still be good
-      if reach_limit:
-        print 'we reached limit when projecting'
-      else:
-        print 'did not reach limit'
+      #For debugging: Informs whether the limit is reached or not, but as above, the extend function has the final say because some
+      #steps along the way to the projected target might still be good and worth adding to the tree
+      #if reach_limit:
+        #print 'we reached limit when projecting'
+      #else:
+        #print 'did not reach limit'
 
       #Get the transform
       transform = self.manip.GetEndEffectorTransform()
-      print 'transform', transform
       
       #Pull the z value out of the transform
       z_current = transform[2,3]
-      print 'z_current', z_current
       
       #Use the last row of the spatial Jacobian to run the gradient descent
       #Only the z axis is constrained, but x, y and rotation are allowed to be free
+      #The last row is used because this maps to the rate of change of the end effector
       j_spatial = self.manip.CalculateJacobian()
       j_spatial_last = j_spatial[-1]
-      print 'j_spatial_last',j_spatial_last
       
+      
+      #Calculate the gradient by multiplifying the difference between the current z and desired z
+      #by the last row of the spatial jacobian (factor of 2 is because of derivative chain rule)
       gradient = 2*(z_current - z_val)*j_spatial_last
-      print 'gradient', gradient
-      print 'linalg', np.linalg.norm(gradient)
-      q_current = q_current - gradient*delta
-      print 'q current', q_current
-    
-    
-    print '===========new config is===========', q_current
-    print '===========new transform is========', transform
+      
+      #Find the new q_current by decrementing it by the gradient times a fixed delta
+      q_current = q_current - gradient*DELTA
+
+      #Some value print statements for debugging
+      #print 'transform', transform
+      #print 'z_current', z_current
+      #print 'j_spatial_last',j_spatial_last
+      #print 'q current', q_current
+      #print 'gradient', gradient
+      #print 'linalg', np.linalg.norm(gradient)
     return q_current
 
   #######################################################
   # The choose target from start function either returns a random 
-  # configuration or the closest randomly selected configuration 
+  # configuration or a randomly selected configuration 
   # from the goal tree. This configuration will be the target to which the 
-  # tree tries to expand to. The function also returns the nearest configuration
+  # start tree tries to extend to. The function also returns the nearest configuration
   # on the start tree and the minimum distance by taking advantage of rrt_nearest
   #######################################################
   def rrt_choose_target_from_start(self, start_tree, goal_tree, lower, upper):
     
     if (np.random.random_sample()<PROB_RAND_TARGET):
       q_target = np.array(lower+np.random.rand(len(lower))*(upper-lower)) #Choose a random configuration
-      print 'RANDOM target from start to goal chosen'
+      #print 'RANDOM target from start to goal chosen'
 
     #Otherwise choose the closest of a random selection from each of the goal trees
     else:
       q_target = choice(goal_tree)
-      print 'specific target from start to goal chosen', q_target
+      #print 'specific target from start to goal chosen', q_target
 
     min_dist, q_nearest, nearest_start_tree_index = self.rrt_nearest(start_tree, q_target)
     return q_target, q_nearest, min_dist
@@ -407,9 +409,10 @@ class RoboHandler:
 
   #######################################################
   # The choose target from goal function either returns a random 
-  # configuration or the closest randomly selected configuration 
+  # configuration or a randomly selected configuration 
   # from the start tree. This configuration will be the target to which the 
-  # tree tries to expand to. 
+  # goal tree tries to extend to from its own nearest node by taking advantage
+  # of rrt_nearest
   #######################################################
   def rrt_choose_target_from_goal(self, start_tree, goal_tree, lower, upper):
     
@@ -439,33 +442,32 @@ class RoboHandler:
   ##################################################################################################
   def rrt_extend(self, q_nearest, q_target, tree, parent, lower, upper, z_val):
 
-    direction_vector = q_target - q_nearest # Obtain the direction of the direct line from initial to goal state
-    #dist, index = self.min_euclid_dist_one_to_many(q_nearest, [q_target]) # The distance between the initial and final state
-    #steps = int(dist / MAX_MOVE_AMOUNT) # Determine how many steps it will take to reach the final state
+    #Obtain the direction of the direct line from initial to goal state
+    direction_vector = q_target - q_nearest 
 
     #Find the projection of q_target
     q_target_proj = self.project_z_val_manip(q_target, z_val, lower, upper)
-    print 'q target projection is:', q_target_proj
+    #print 'q target projection is:', q_target_proj
+
     #Find the projection of q_nearest
     q_nearest_proj = self.project_z_val_manip(q_nearest, z_val, lower, upper)
     #Try to extend all the way to the target, terminate at step if not possible
-    print 'q nearest projection is:', q_nearest_proj
+    #print 'q nearest projection is:', q_nearest_proj
     
     ##if q_nearest_proj or q_target_proj is None:
     ##  return
     dist, index = self.min_euclid_dist_one_to_many(q_nearest, [q_target_proj]) # The distance between the initial and final state
     #for count in range(steps):
     
-    
     #Initialize the parent
     q_parent = q_nearest
-    while(dist > DIST_THRESH):
-      
-      #q_parent = q_nearest_proj + ((direction_vector)/steps)*(count) # Calculate the parent to be each previous node
+    steps = 0
+    while(dist > DIST_THRESH2 and steps < 40):
+      steps = steps+1 #make sure we don't get stuck here if distance does not converge
       #Jump towards the target from the parent
       q_jump = q_parent + (direction_vector/dist)*MAX_MOVE_AMOUNT
       
-      #Project the result
+      #Project the result and store inside q_add
       q_add = self.project_z_val_manip(q_jump, z_val, lower, upper)
 
       #Check to see if q_add is none and quit if so
@@ -473,15 +475,13 @@ class RoboHandler:
         return
       #q_nearest + ((direction_vector)/steps)*(count+1) # The next node is obtained by 'walking' on this direct line
       
-      #Make sure the new node is good to add to the tree
+      #Make sure the new node is not in collision or at limits. If still good, add to the tree
       with self.env:
         self.robot.SetActiveDOFValues(q_add) # This is done for demo purposes. The robot will assume a configuration as it tests.
-        reach_limit = self.robot.CheckSelfCollision() or self.env.CheckCollision(self.robot) or self.limitcheck(q_add, lower, upper) #This needs to be under the self.env block!
+        reach_limit = self.robot.CheckSelfCollision() or self.env.CheckCollision(self.robot) or self.limitcheck(q_add, lower, upper)
 
       if reach_limit:
         return None # Terminate the function of a collision occurs. 
-      #print "TREE, Q_ADD", tree, q_add
-      
       
       isPresent = False
       for node in tree:
