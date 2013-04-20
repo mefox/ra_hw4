@@ -53,13 +53,13 @@ openravepy.misc.InitOpenRAVELogging()
 #################################################################
 
 #constant for max distance to move any joint in a discrete step
-MAX_MOVE_AMOUNT = 0.1
+MAX_MOVE_AMOUNT = 0.05
 
 #Constant for probability of choosing a random target
-PROB_RAND_TARGET = 0.9
+PROB_RAND_TARGET = 0.75
 
 #Constant for distance of current state near goal to determine the termination of the algorithm
-DIST_THRESH = 0.8
+DIST_THRESH = 0.5
 
 class RoboHandler:
   def __init__(self):
@@ -264,9 +264,10 @@ class RoboHandler:
   def birrt_to_goal(self, goals):
     print 'Starting BiRRT Algorithm'
     #goals = np.array(goals) #Bring the goals into an np array
+
     q_initial = self.robot.GetActiveDOFValues() # Initial state is a np array
     print "INITIAL POSITION", q_initial
-    q_initial_tuple = self.convert_for_dict(q_initial) # This is the tuple for initial state
+    #q_initial_tuple = self.convert_for_dict(q_initial) # This is the tuple for initial state
     q_nearest = q_initial # This is the initialization for nearest point in np array format
     thresh = DIST_THRESH # The threshold to determine if the goal is reached or not
     
@@ -276,7 +277,7 @@ class RoboHandler:
     #start_tree.append(q_initial_tuple)
     #Initialize the parent dictionary for the start node
     start_parent = {}
-    start_parent[q_initial_tuple] = None # Dictionary to store the start_parents
+    start_parent[self.convert_for_dict(q_initial)] = None # Dictionary to store the start_parents
 
 
     #trees = np.array([]) #np array to store goal trees
@@ -300,26 +301,31 @@ class RoboHandler:
     tree_not_connected = True
     print 'Completed initialization, lets make some trees!'
     dist_between_trees, idx1, idx2 = self.min_euclid_dist_many_to_many(start_tree, goal_tree)
-    while(dist_between_trees>DIST_THRESH): # Keep checking if the tree has not already reached a nearest goal   
-      #print "DISTANCE Initial: ",dist_between_trees
+
+    while(dist_between_trees > thresh): # Keep checking if the tree has not already reached a nearest goal   
       #First grow start tree
       q_target, q_nearest, min_dist = self.rrt_choose_target_from_start(start_tree, goal_tree, lower, upper) 
+
       #print "FOR START TREE - Q-TARGET, Q-NEAREST",q_target, q_nearest
       self.rrt_extend(q_nearest, q_target, start_tree, start_parent, lower, upper)
-
+      
+      #Recalculate distance between trees and check to see if they are close enough
       dist_between_trees, idx1, idx2 = self.min_euclid_dist_many_to_many(start_tree, goal_tree)
       print "DISTANCE after start_tree extend: ",dist_between_trees      
-      if (dist_between_trees < DIST_THRESH):
+      if (dist_between_trees < thresh):
          break
       
-      q_target, q_nearest, min_dist = self.rrt_choose_target_from_goal(start_tree,goal_tree, lower, upper) # Function returns a randomly chosen configuration or a nearest goal to the tree
+      #Now grow goal tree
+      q_target, q_nearest, min_dist = self.rrt_choose_target_from_goal(start_tree,goal_tree, lower, upper)
+
       #print "FOR GOAL TREE - Q-TARGET, Q-NEAREST",q_target, q_nearest
-      # Incorrect - needs to use goal tree, not start tree- self.rrt_extend(q_nearest, q_target, start_tree, goal_parent, lower, upper)
       self.rrt_extend(q_nearest, q_target, goal_tree, goal_parent, lower, upper)      
       dist_between_trees, idx1, idx2 = self.min_euclid_dist_many_to_many(start_tree, goal_tree)
 
       print "DISTANCE after goal tree extend: ",dist_between_trees
 
+    #Once the trees are close enough, define the closest points on each tree to other other tree
+    #to be config1 and config2 respectively
     config1 = start_tree[idx1]
     config2 = goal_tree[idx2]
        
@@ -395,6 +401,8 @@ class RoboHandler:
         reach_limit = self.robot.CheckSelfCollision() or self.env.CheckCollision(self.robot) or self.limitcheck(q_add, lower, upper) #This needs to be under the self.env block!
 
       if reach_limit:
+        print ' '
+        print 'limit reached at step', count
         return None # Terminate the function of a collision occurs. 
       #print "TREE, Q_ADD", tree, q_add
 
@@ -403,7 +411,6 @@ class RoboHandler:
         if self.convert_for_dict(node) == self.convert_for_dict(q_add):
           isPresent = True
       if not isPresent:
-        #print "================ADDED AN ELEMENT****************************************"
         tree.append(q_add) # Add the first element to the tree
         parent[self.convert_for_dict(q_add)] = q_parent # Update the parent dictionary	
     
@@ -422,16 +429,16 @@ class RoboHandler:
      path2 = []
      path2.append(config2)
 
-     print "START PARENT=========================================", start_parent
-     print "GOAL_PARENT---------------------------------------", goal_parent
+     #print "START PARENT=========================================", start_parent
+     #print "GOAL_PARENT---------------------------------------", goal_parent
 
      while not path1[-1] is None:
-       print "BUILDING PATH 1", len(path1)
+       #print "BUILDING PATH 1", len(path1)
        node = start_parent[self.convert_for_dict(path1[-1])]
        path1.append(node)
 
      while not path2[-1] is None:
-       print "BUILDING PATH 2", len(path2)
+       #print "BUILDING PATH 2", len(path2)
        node = goal_parent[self.convert_for_dict(path2[-1])]
        path2.append(node)
 
@@ -527,5 +534,5 @@ if __name__ == '__main__':
   robo = RoboHandler()
   print "calling "
   robo.run_problem_birrt()
-  time.sleep(30) #to keep the openrave window open
+  time.sleep(20) #to keep the openrave window open
   
