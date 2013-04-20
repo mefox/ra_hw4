@@ -393,8 +393,8 @@ class RoboHandler:
         reach_limit = self.robot.CheckSelfCollision() or self.env.CheckCollision(self.robot) or self.limitcheck(q_add, lower, upper) #This needs to be under the self.env block!
 
       if reach_limit:
-        print ' '
-        print 'limit reached at step', count
+        #print ' '
+        #print 'limit reached at step', count
         return None # Terminate the function of a collision occurs. 
       #print "TREE, Q_ADD", tree, q_add
 
