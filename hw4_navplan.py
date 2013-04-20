@@ -455,25 +455,25 @@ class RoboHandler:
     #Assume all moves are 1 s.
     control_options.append([0.6544, -0.6544]) #PI/6 - since we want within +/- PI/12 radians
     control_options.append([-0.6544, 0.6544]) #-PI/6 -  same reason.
-    #control_options.append([0.3272, -0.3272]) #PI/12 - just in case (numerical error or something)
-    #control_options.append([-0.3272, 0.3272]) #-PI/12
+    control_options.append([0.3272, -0.3272]) #PI/12 - just in case (numerical error or something)
+    control_options.append([-0.3272, 0.3272]) #-PI/12
     #control_options.append([1, -1]) #Max spin
     #control_options.append([-1, 1]) #Max spin
 
     control_options.append([1, 1]) #Max distance possible
     control_options.append([0.2, 0.2]) #Min distance we care about (4cm)
-    #control_options.append([0.4, 0.4]) #Other straight-line distance
-    #control_options.append([0.8, 0.8]) # "" "" ""
+    control_options.append([0.4, 0.4]) #Other straight-line distance
+    control_options.append([0.8, 0.8]) # "" "" ""
 
-    #control_options.append([0.5, 1]) #Hook
-    #control_options.append([1, 0.5]) #Hook
-    #control_options.append([-0.5, 1]) #Sharp Hook
-    #control_options.append([1, -0.5]) #Sharp Hook
+    control_options.append([0.5, 1]) #Hook
+    control_options.append([1, 0.5]) #Hook
+    control_options.append([-0.5, 1]) #Sharp Hook
+    control_options.append([1, -0.5]) #Sharp Hook
 
-    #control_options.append([0.25, 0.5]) #Hook
-    #control_options.append([0.5, 0.25]) #Hook
-    #control_options.append([-0.25, 0.5]) #Sharp Hook
-    #control_options.append([0.5, -0.25]) #Sharp Hook
+    control_options.append([0.25, 0.5]) #Hook
+    control_options.append([0.5, 0.25]) #Hook
+    control_options.append([-0.25, 0.5]) #Sharp Hook
+    control_options.append([0.5, -0.25]) #Sharp Hook
 
     
     for control in control_options:
@@ -497,10 +497,9 @@ class RoboHandler:
     fulls = []
 
     for t in range(0, int(time/TIMESTEP_AMOUNT)):
-      theta_dot = omega_1/(2*ROBOT_LENGTH)*WHEEL_RADIUS - omega_2/(2*ROBOT_LENGTH)*WHEEL_RADIUS
-
-      x_dot = (omega_1/2.0 * WHEEL_RADIUS * np.sin(theta)) + (omega_1/2.0 * WHEEL_RADIUS * np.sin(theta))
-      y_dot = (omega_2/2.0 * WHEEL_RADIUS * np.cos(theta)) + (omega_2/2.0 * WHEEL_RADIUS * np.cos(theta))
+      theta_dot = (omega_1/(2*ROBOT_LENGTH))*WHEEL_RADIUS - (omega_2/(2*ROBOT_LENGTH))*WHEEL_RADIUS
+      x_dot = ((omega_1/2.0) * WHEEL_RADIUS * np.sin(theta)) - ((omega_1/2.0) * WHEEL_RADIUS * np.sin(theta))
+      y_dot = ((omega_2/2.0) * WHEEL_RADIUS * np.cos(theta)) + ((omega_2/2.0) * WHEEL_RADIUS * np.cos(theta))
 
       fulls.append(self.params_to_transform([x_dot, y_dot, theta_dot]))
 
